@@ -99,6 +99,7 @@ const (
 	GoPluginStreamFilterSuffix = "so_plugin"
 	GrpcMetricFilter           = "grpc_metric"
 	IPAccess                   = "ip_access"
+	SBOMGenerator              = "sbom_generator"
 )
 
 // HealthCheckFilter

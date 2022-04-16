@@ -43,6 +43,7 @@ import (
 	iv2 "mosn.io/mosn/istio/istio1106/config/v2"
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/featuregate"
+	"mosn.io/mosn/pkg/filter/stream/sbomgen"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/mtls/extensions/sni"
 	"mosn.io/mosn/pkg/protocol"
@@ -117,7 +118,7 @@ func ConvertListenerConfig(xdsListener *envoy_config_listener_v3.Listener, rh ro
 			UseOriginalDst: xdsListener.GetUseOriginalDst().GetValue(),
 			Type:           convertTrafficDirection(xdsListener),
 		},
-		Addr: addr,
+		Addr:                    addr,
 		PerConnBufferLimitBytes: xdsListener.GetPerConnectionBufferLimitBytes().GetValue(),
 	}
 
@@ -298,11 +299,17 @@ func convertStreamFilter(name string, s *any.Any) v2.Filter {
 					log.DefaultLogger.Errorf("convert payload limit config error: %v", err)
 				}
 			} else {
-				//filter.Config, err = convertStreamPayloadLimitConfig(s)
+				// filter.Config, err = convertStreamPayloadLimitConfig(s)
 				if err != nil {
 					log.DefaultLogger.Errorf("convert payload limit config error: %v", err)
 				}
 			}
+		}
+	case v2.SBOMGenerator:
+		filter.Type = v2.SBOMGenerator
+		filter.Config, err = convertSBOMGeneratorConfig(s)
+		if err != nil {
+			log.DefaultLogger.Errorf("convertSBOMGeneratorConfig error: %v", err)
 		}
 	default:
 		log.DefaultLogger.Infof("[xds] convertStreamFilter, unsupported filter config, name: %s", name)
@@ -943,4 +950,12 @@ func convertStreamRbacConfig(s *any.Any) (map[string]interface{}, error) {
 	}
 	config["version"] = "envoy_config_rbac_v3"
 	return config, nil
+}
+
+func convertSBOMGeneratorConfig(in *any.Any) (map[string]interface{}, error) {
+	var cfg, err = sbomgen.ConvertAnyToFilterConfig(in)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.AsMap(), nil
 }
