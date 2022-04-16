@@ -18,9 +18,11 @@
 package conv
 
 import (
+	"fmt"
 	"strings"
 
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3" // some config contains this protobuf, mosn does not parse it yet.
+	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
@@ -52,9 +54,10 @@ func ConvertRouterConf(routeConfigName string, xdsRouteConfig *envoy_config_rout
 			Name:    xdsVirtualHost.GetName(),
 			Domains: xdsVirtualHost.GetDomains(),
 			Routers: convertRoutes(xdsVirtualHost.GetRoutes()),
-			//RequireTLS:              xdsVirtualHost.GetRequireTls().String(),
-			//VirtualClusters:         convertVirtualClusters(xdsVirtualHost.GetVirtualClusters()),
+			// RequireTLS:              xdsVirtualHost.GetRequireTls().String(),
+			// VirtualClusters:         convertVirtualClusters(xdsVirtualHost.GetVirtualClusters()),
 			RequestHeadersToAdd:     convertHeadersToAdd(xdsVirtualHost.GetRequestHeadersToAdd()),
+			RequestHeadersToRemove:  xdsVirtualHost.GetRequestHeadersToRemove(),
 			ResponseHeadersToAdd:    convertHeadersToAdd(xdsVirtualHost.GetResponseHeadersToAdd()),
 			ResponseHeadersToRemove: xdsVirtualHost.GetResponseHeadersToRemove(),
 		}
@@ -65,6 +68,7 @@ func ConvertRouterConf(routeConfigName string, xdsRouteConfig *envoy_config_rout
 		RouterConfigurationConfig: v2.RouterConfigurationConfig{
 			RouterConfigName:        xdsRouteConfig.GetName(),
 			RequestHeadersToAdd:     convertHeadersToAdd(xdsRouteConfig.GetRequestHeadersToAdd()),
+			RequestHeadersToRemove:  xdsRouteConfig.GetRequestHeadersToRemove(),
 			ResponseHeadersToAdd:    convertHeadersToAdd(xdsRouteConfig.GetResponseHeadersToAdd()),
 			ResponseHeadersToRemove: xdsRouteConfig.GetResponseHeadersToRemove(),
 		},
@@ -82,8 +86,8 @@ func convertRoutes(xdsRoutes []*envoy_config_route_v3.Route) []v2.Router {
 			route := v2.Router{
 				RouterConfig: v2.RouterConfig{
 					Match: convertRouteMatch(xdsRoute.GetMatch()),
-					Route: convertRouteAction(xdsRouteAction),
-					//Decorator: v2.Decorator(xdsRoute.GetDecorator().String()),
+					Route: convertRoute(xdsRoute),
+					// Decorator: v2.Decorator(xdsRoute.GetDecorator().String()),
 					RequestMirrorPolicies: convertMirrorPolicy(xdsRouteAction),
 				},
 				Metadata: convertMeta(xdsRoute.GetMetadata()),
@@ -95,7 +99,7 @@ func convertRoutes(xdsRoutes []*envoy_config_route_v3.Route) []v2.Router {
 				RouterConfig: v2.RouterConfig{
 					Match:    convertRouteMatch(xdsRoute.GetMatch()),
 					Redirect: convertRedirectAction(xdsRouteAction),
-					//Decorator: v2.Decorator(xdsRoute.GetDecorator().String()),
+					// Decorator: v2.Decorator(xdsRoute.GetDecorator().String()),
 				},
 				Metadata: convertMeta(xdsRoute.GetMetadata()),
 			}
@@ -106,7 +110,7 @@ func convertRoutes(xdsRoutes []*envoy_config_route_v3.Route) []v2.Router {
 				RouterConfig: v2.RouterConfig{
 					Match:          convertRouteMatch(xdsRoute.GetMatch()),
 					DirectResponse: convertDirectResponseAction(xdsRouteAction),
-					//Decorator: v2.Decorator(xdsRoute.GetDecorator().String()),
+					// Decorator: v2.Decorator(xdsRoute.GetDecorator().String()),
 				},
 				Metadata: convertMeta(xdsRoute.GetMetadata()),
 			}
@@ -135,13 +139,13 @@ func convertPerRouteConfig(xdsPerRouteConfig map[string]*any.Any) map[string]int
 			perRouteConfig[v2.FaultStream] = cfg
 		case v2.PayloadLimit:
 			if featuregate.Enabled(featuregate.PayLoadLimitEnable) {
-				//cfg, err := convertStreamPayloadLimitConfig(config)
-				//if err != nil {
+				// cfg, err := convertStreamPayloadLimitConfig(config)
+				// if err != nil {
 				//      log.DefaultLogger.Infof("convertPerRouteConfig[%s] error: %v", v2.PayloadLimit, err)
 				//      continue
-				//}
-				//log.DefaultLogger.Debugf("add a payload limit stream filter in router")
-				//perRouteConfig[v2.PayloadLimit] = cfg
+				// }
+				// log.DefaultLogger.Debugf("add a payload limit stream filter in router")
+				// perRouteConfig[v2.PayloadLimit] = cfg
 			}
 		default:
 			log.DefaultLogger.Warnf("unknown per route config: %s", key)
@@ -155,8 +159,8 @@ func convertRouteMatch(xdsRouteMatch *envoy_config_route_v3.RouteMatch) v2.Route
 	rm := v2.RouterMatch{
 		Prefix: xdsRouteMatch.GetPrefix(),
 		Path:   xdsRouteMatch.GetPath(),
-		//CaseSensitive: xdsRouteMatch.GetCaseSensitive().GetValue(),
-		//Runtime:       convertRuntime(xdsRouteMatch.GetRuntime()),
+		// CaseSensitive: xdsRouteMatch.GetCaseSensitive().GetValue(),
+		// Runtime:       convertRuntime(xdsRouteMatch.GetRuntime()),
 		Headers: convertHeaders(xdsRouteMatch.GetHeaders()),
 	}
 	if xdsRouteMatch.GetSafeRegex() != nil {
@@ -171,15 +175,41 @@ func convertHeaders(xdsHeaders []*envoy_config_route_v3.HeaderMatcher) []v2.Head
 	}
 	headerMatchers := make([]v2.HeaderMatcher, 0, len(xdsHeaders))
 	for _, xdsHeader := range xdsHeaders {
-		headerMatcher := v2.HeaderMatcher{}
-		if xdsHeader.GetSafeRegexMatch() != nil && xdsHeader.GetSafeRegexMatch().Regex != "" {
-			headerMatcher.Name = xdsHeader.GetName()
-			headerMatcher.Value = xdsHeader.GetSafeRegexMatch().Regex
-			headerMatcher.Regex = true
-		} else {
-			headerMatcher.Name = xdsHeader.GetName()
-			headerMatcher.Value = xdsHeader.GetExactMatch()
+		headerMatcher := v2.HeaderMatcher{
+			Name:  xdsHeader.GetName(),
+			Regex: true,
+		}
+
+		switch t := (xdsHeader.GetHeaderMatchSpecifier()).(type) {
+		case *envoy_config_route_v3.HeaderMatcher_ExactMatch:
 			headerMatcher.Regex = false
+			headerMatcher.Value = t.ExactMatch
+		case *envoy_config_route_v3.HeaderMatcher_SafeRegexMatch:
+			headerMatcher.Value = t.SafeRegexMatch.Regex
+		case *envoy_config_route_v3.HeaderMatcher_ContainsMatch:
+			headerMatcher.Value = ".*" + t.ContainsMatch + ".*"
+		case *envoy_config_route_v3.HeaderMatcher_PrefixMatch:
+			headerMatcher.Value = "^" + t.PrefixMatch + ".*"
+		case *envoy_config_route_v3.HeaderMatcher_SuffixMatch:
+			headerMatcher.Value = ".*" + t.SuffixMatch + "$"
+		case *envoy_config_route_v3.HeaderMatcher_RangeMatch:
+			headerMatcher.Value = fmt.Sprintf("[%d,%d]", t.RangeMatch.Start, t.RangeMatch.End-1)
+		case *envoy_config_route_v3.HeaderMatcher_PresentMatch:
+			headerMatcher.Value = ".*"
+		case *envoy_config_route_v3.HeaderMatcher_StringMatch:
+			switch tt := (t.StringMatch.GetMatchPattern()).(type) {
+			case *envoy_type_matcher_v3.StringMatcher_Exact:
+				headerMatcher.Regex = false
+				headerMatcher.Value = tt.Exact
+			case *envoy_type_matcher_v3.StringMatcher_SafeRegex:
+				headerMatcher.Value = tt.SafeRegex.Regex
+			case *envoy_type_matcher_v3.StringMatcher_Contains:
+				headerMatcher.Value = ".*" + tt.Contains + ".*"
+			case *envoy_type_matcher_v3.StringMatcher_Prefix:
+				headerMatcher.Value = "^" + tt.Prefix + ".*"
+			case *envoy_type_matcher_v3.StringMatcher_Suffix:
+				headerMatcher.Value = ".*" + tt.Suffix + "$"
+			}
 		}
 
 		// as pseudo headers not support when Http1.x upgrade to Http2, change pseudo headers to normal headers
@@ -203,23 +233,27 @@ func convertMeta(xdsMeta *envoy_config_core_v3.Metadata) api.Metadata {
 	return meta
 }
 
-func convertRouteAction(xdsRouteAction *envoy_config_route_v3.RouteAction) v2.RouteAction {
-	if xdsRouteAction == nil {
+func convertRoute(xdsRoute *envoy_config_route_v3.Route) v2.RouteAction {
+	if xdsRoute == nil {
 		return v2.RouteAction{}
 	}
+	xdsRouteAction := xdsRoute.GetRoute()
 	return v2.RouteAction{
 		RouterActionConfig: v2.RouterActionConfig{
-			ClusterName:      xdsRouteAction.GetCluster(),
-			ClusterHeader:    xdsRouteAction.GetClusterHeader(),
-			WeightedClusters: convertWeightedClusters(xdsRouteAction.GetWeightedClusters()),
-			HashPolicy:       convertHashPolicy(xdsRouteAction.GetHashPolicy()),
-			RetryPolicy:      convertRetryPolicy(xdsRouteAction.GetRetryPolicy()),
-			PrefixRewrite:    xdsRouteAction.GetPrefixRewrite(),
-			AutoHostRewrite:  xdsRouteAction.GetAutoHostRewrite().GetValue(),
-			//RequestHeadersToAdd:     convertHeadersToAdd(xdsRouteAction.GetRequestHeadersToAdd()),
-			//
-			//ResponseHeadersToAdd:    convertHeadersToAdd(xdsRouteAction.GetResponseHeadersToAdd()),
-			//ResponseHeadersToRemove: xdsRouteAction.GetResponseHeadersToRemove(),
+			ClusterName:             xdsRouteAction.GetCluster(),
+			ClusterHeader:           xdsRouteAction.GetClusterHeader(),
+			WeightedClusters:        convertWeightedClusters(xdsRouteAction.GetWeightedClusters()),
+			HashPolicy:              convertHashPolicy(xdsRouteAction.GetHashPolicy()),
+			RetryPolicy:             convertRetryPolicy(xdsRouteAction.GetRetryPolicy()),
+			PrefixRewrite:           xdsRouteAction.GetPrefixRewrite(),
+			RegexRewrite:            convertRegexRewrite(xdsRouteAction.GetRegexRewrite()),
+			HostRewrite:             xdsRouteAction.GetHostRewriteLiteral(),
+			AutoHostRewriteHeader:   xdsRouteAction.GetHostRewriteHeader(),
+			AutoHostRewrite:         xdsRouteAction.GetAutoHostRewrite().GetValue(),
+			RequestHeadersToAdd:     convertHeadersToAdd(xdsRoute.GetRequestHeadersToAdd()),
+			RequestHeadersToRemove:  xdsRoute.GetRequestHeadersToRemove(),
+			ResponseHeadersToAdd:    convertHeadersToAdd(xdsRoute.GetResponseHeadersToAdd()),
+			ResponseHeadersToRemove: xdsRoute.GetResponseHeadersToRemove(),
 		},
 		MetadataMatch: convertMeta(xdsRouteAction.GetMetadataMatch()),
 		Timeout:       ConvertDuration(xdsRouteAction.GetTimeout()),
@@ -246,6 +280,18 @@ func convertHeadersToAdd(headerValueOption []*envoy_config_core_v3.HeaderValueOp
 		})
 	}
 	return valueOptions
+}
+
+func convertRegexRewrite(xdsRegexRewrite *envoy_type_matcher_v3.RegexMatchAndSubstitute) *v2.RegexRewrite {
+	if xdsRegexRewrite == nil {
+		return nil
+	}
+	return &v2.RegexRewrite{
+		Pattern: v2.PatternConfig{
+			Regex: xdsRegexRewrite.GetPattern().GetRegex(),
+		},
+		Substitution: xdsRegexRewrite.GetSubstitution(),
+	}
 }
 
 func convertRetryPolicy(xdsRetryPolicy *envoy_config_route_v3.RetryPolicy) *v2.RetryPolicy {
