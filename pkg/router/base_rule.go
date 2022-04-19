@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -90,7 +91,7 @@ func NewRouteRuleImplBase(vHost api.VirtualHost, route *v2.Router) (*RouteRuleIm
 		},
 		lock: sync.Mutex{},
 	}
-	//check and store regrex rewrite pattern
+	// check and store regrex rewrite pattern
 	if route.Route.RegexRewrite != nil && len(route.Route.RegexRewrite.Pattern.Regex) > 1 && len(route.Route.PrefixRewrite) == 0 {
 		base.regexRewrite = *route.Route.RegexRewrite
 		regexPattern, err := regexp.Compile(route.Route.RegexRewrite.Pattern.Regex)
@@ -280,15 +281,15 @@ func (rri *RouteRuleImplBase) finalizePathHeader(ctx context.Context, headers ap
 	path, err := variable.GetString(ctx, types.VarPath)
 	if err == nil && path != "" {
 
-		//If both prefix_rewrite and regex_rewrite are configured
-		//prefix rewrite by default
+		// If both prefix_rewrite and regex_rewrite are configured
+		// prefix rewrite by default
 		if len(rri.prefixRewrite) != 0 {
 			if strings.HasPrefix(path, matchedPath) {
 				// origin path need to save in the header
 				headers.Set(types.HeaderOriginalPath, path)
 				variable.SetString(ctx, types.VarPath, rri.prefixRewrite+path[len(matchedPath):])
 				if log.DefaultLogger.GetLogLevel() >= log.INFO {
-					log.DefaultLogger.Infof(RouterLogFormat, "routerule", "finalizePathHeader", "add prefix to path, prefix is "+rri.prefixRewrite)
+					log.Proxy.Infof(ctx, RouterLogFormat, "routerule", "finalizePathHeader", "add prefix to path, prefix is "+rri.prefixRewrite)
 				}
 			}
 			return
@@ -299,9 +300,10 @@ func (rri *RouteRuleImplBase) finalizePathHeader(ctx context.Context, headers ap
 			rewritedPath := rri.regexPattern.ReplaceAllString(path, rri.regexRewrite.Substitution)
 			if rewritedPath != path {
 				headers.Set(types.HeaderOriginalPath, path)
+				rewritedPath = filepath.Clean(rewritedPath)
 				variable.SetString(ctx, types.VarPath, rewritedPath)
 				if log.DefaultLogger.GetLogLevel() >= log.INFO {
-					log.DefaultLogger.Infof(RouterLogFormat, "routerule", "finalizePathHeader", "regex rewrite path, rewrited path is "+rewritedPath)
+					log.Proxy.Infof(ctx, RouterLogFormat, "routerule", "finalizePathHeader", "regex rewrite path, rewrited path is "+rewritedPath)
 				}
 			}
 		}
