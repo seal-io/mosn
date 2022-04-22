@@ -23,7 +23,7 @@ import (
 
 	_ "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/router/v3" // some config contains this protobuf, mosn does not parse it yet.
 	envoy_type_matcher_v3 "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
-	"mosn.io/mosn/pkg/filter/stream/sbomgen"
+	"mosn.io/mosn/pkg/filter/stream/sca"
 
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
@@ -148,14 +148,14 @@ func convertPerRouteConfig(xdsPerRouteConfig map[string]*any.Any) map[string]int
 				// log.DefaultLogger.Debugf("add a payload limit stream filter in router")
 				// perRouteConfig[v2.PayloadLimit] = cfg
 			}
-		case v2.SBOMGenerator:
-			cfg, err := sbomgen.ConvertAnyToFilterRouteConfig(config)
+		case v2.SCA:
+			cfg, err := sca.ConvertAnyToConfig(config)
 			if err != nil {
-				log.DefaultLogger.Infof("sbomgen convertAnyToFilterRouteConfig[%s] error: %v", v2.SBOMGenerator, err)
+				log.DefaultLogger.Infof(" error: %v", v2.SCA, err)
 				continue
 			}
 			log.DefaultLogger.Debugf("add a sbomgen stream filter in router")
-			perRouteConfig[v2.SBOMGenerator] = cfg
+			perRouteConfig[v2.SCA] = cfg
 		default:
 			log.DefaultLogger.Warnf("unknown per route config: %s", key)
 		}

@@ -43,7 +43,7 @@ import (
 	iv2 "mosn.io/mosn/istio/istio1106/config/v2"
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/featuregate"
-	"mosn.io/mosn/pkg/filter/stream/sbomgen"
+	"mosn.io/mosn/pkg/filter/stream/sca"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/mtls/extensions/sni"
 	"mosn.io/mosn/pkg/protocol"
@@ -305,11 +305,11 @@ func convertStreamFilter(name string, s *any.Any) v2.Filter {
 				}
 			}
 		}
-	case v2.SBOMGenerator:
-		filter.Type = v2.SBOMGenerator
-		filter.Config, err = convertSBOMGeneratorConfig(s)
+	case v2.SCA:
+		filter.Type = v2.SCA
+		filter.Config, err = convertSCAGlobalConfig(s)
 		if err != nil {
-			log.DefaultLogger.Errorf("convertSBOMGeneratorConfig error: %v", err)
+			log.DefaultLogger.Errorf("convert sca config error: %v", err)
 		}
 	default:
 		log.DefaultLogger.Infof("[xds] convertStreamFilter, unsupported filter config, name: %s", name)
@@ -952,10 +952,10 @@ func convertStreamRbacConfig(s *any.Any) (map[string]interface{}, error) {
 	return config, nil
 }
 
-func convertSBOMGeneratorConfig(in *any.Any) (map[string]interface{}, error) {
-	var cfg, err = sbomgen.ConvertAnyToFilterConfig(in)
+func convertSCAGlobalConfig(in *any.Any) (map[string]interface{}, error) {
+	var cfg, err = sca.ConvertAnyToGlobalConfig(in)
 	if err != nil {
 		return nil, err
 	}
-	return cfg.AsMap(), nil
+	return cfg.Encapsulate(), nil
 }

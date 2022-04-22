@@ -100,6 +100,7 @@ const (
 	GrpcMetricFilter           = "grpc_metric"
 	IPAccess                   = "ip_access"
 	SBOMGenerator              = "sbom_generator"
+	SCA                        = "seal.filters.http.sca"
 )
 
 // HealthCheckFilter

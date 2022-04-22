@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package sca;
+
+option go_package = "mosn.io/mosn/pkg/filter/stream/sca";
+
+message ResourceEvaluator {
+  string server = 1;
+  string token = 2;
+  string name = 3;
+  repeated string inherit_header = 4;
+}
+
+message ResourceGlobalConfig {
+  ResourceEvaluator evaluator = 1;
+  string sbom_generate_policy = 2;
+  bool push_enabled = 3;
+}
+
+message ResourceConfig {
+  map<string, string> evaluator_extra_args = 1;
+  string sbom_generate_policy = 2;
+  string type = 3;
+}
