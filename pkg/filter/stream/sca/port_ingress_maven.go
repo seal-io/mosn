@@ -90,7 +90,7 @@ func (m *mavenIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap,
 	var dec = xml.NewDecoder(bytes.NewBuffer(respBuf.Bytes()))
 	dec.CharsetReader = charset.NewReaderLabel
 	if err = dec.Decode(&proj); err != nil {
-		return false, fmt.Errorf("error decoding proj pom: %w", err)
+		return false, fmt.Errorf("error decoding project pom: %w", err)
 	}
 	var packaging = func() string {
 		if proj.Packaging == "" {
@@ -111,8 +111,17 @@ func (m *mavenIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap,
 		return false, fmt.Errorf("error setting checksum forward path: %w", err)
 	}
 	var checksumReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
+		if respCode != stdhttp.StatusOK {
+			return nil
+		}
+		if respHeaders == nil {
+			return nil
+		}
 		var contentType, _ = respHeaders.Get("Content-Type")
 		if contentType != "text/plain" {
+			return nil
+		}
+		if respData == nil {
 			return nil
 		}
 		checksum = respData.Bytes()
@@ -156,6 +165,9 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInte
 		if respCode != stdhttp.StatusOK {
 			return nil
 		}
+		if respHeaders == nil {
+			return nil
+		}
 		var contentType, _ = respHeaders.Get("Content-Type")
 		switch contentType {
 		default:
@@ -165,7 +177,6 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInte
 		if respData == nil {
 			return nil
 		}
-
 		src, err := source.NewFromFileBuffer(m.packageSample.Path, bytes.NewBuffer(respData.Bytes()))
 		if err != nil {
 			return fmt.Errorf("error creating sbom scanning source: %w", err)
@@ -181,7 +192,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInte
 		return blobForwardErr
 	}
 	if len(sbomBytes) == 0 {
-		return errors.New("cannot get sbom from archive")
+		return errors.New("invalid sbom of pulling maven archive")
 	}
 
 	m.packageSBOM = sbomBytes

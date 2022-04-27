@@ -163,9 +163,12 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context, cacher cache.Cac
 			if respCode != stdhttp.StatusOK {
 				return nil
 			}
+			if respHeaders == nil {
+				return nil
+			}
 			var contentType, _ = respHeaders.Get("Content-Type")
 			if contentType != "application/octet-stream" {
-				return EncodeDockerReplyError(fmt.Errorf("invalid blob content type %s", contentType))
+				return fmt.Errorf("invalid blob content type %s", contentType)
 			}
 			if respData == nil {
 				return nil
@@ -220,6 +223,9 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context, cacher cache.Cac
 	sbomBytes, err := m.GenerateSBOM(ctx, src)
 	if err != nil {
 		return fmt.Errorf("error generating sbom: %w", err)
+	}
+	if len(sbomBytes) == 0 {
+		return errors.New("invalid sbom of pulling docker image")
 	}
 
 	m.packageSBOM = sbomBytes

@@ -84,6 +84,9 @@ func (m *mavenEgress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInter
 	if err != nil {
 		return fmt.Errorf("error generating sbom: %w", err)
 	}
+	if len(sbomBytes) == 0 {
+		return errors.New("invalid sbom of pushing maven archive")
+	}
 
 	m.packageSBOM = sbomBytes
 	log.Proxy.Infof(ctx, "[maven/package_push] sbom generated: \n%s", string(sbomBytes))
