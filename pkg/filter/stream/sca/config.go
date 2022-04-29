@@ -16,11 +16,6 @@ import (
 	v2 "mosn.io/mosn/pkg/config/v2"
 )
 
-const (
-	SBOMGeneratePolicyAlways        = "Always"
-	SBOMGeneratePolicyGenIfNotFound = "GenIfNotFound"
-)
-
 func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*ResourceGlobalConfig, error) {
 	var c ResourceGlobalConfig
 	var err = anypb.UnmarshalTo(anyInput, &c, proto.UnmarshalOptions{})

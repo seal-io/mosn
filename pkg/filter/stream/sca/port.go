@@ -12,7 +12,6 @@ import (
 	"github.com/anchore/syft/syft/pkg/cataloger"
 	"github.com/anchore/syft/syft/sbom"
 	"github.com/anchore/syft/syft/source"
-	"github.com/eko/gocache/v2/cache"
 	"github.com/valyala/fasthttp"
 	"mosn.io/api"
 	mosnctx "mosn.io/mosn/pkg/context"
@@ -229,34 +228,34 @@ func (p *portForwarder) Start(sender types.StreamSender) {
 }
 
 type IngressPort interface {
-	// GetSample gets the resource sample from the given parameters.
-	GetSample(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap, cacher cache.CacheInterface) (bool, error)
+	// GetDescriptor gets the resource descriptor from the given parameters.
+	GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error)
 
-	// ValidateSample validates the ingress resource with its sample, i.e. type, name, version, checksum,
+	// ValidateDescriptor validates the ingress resource with its sample, i.e. type, name, version, checksum,
 	// which is faster but less accurate, and return nil if not block explicitly.
-	ValidateSample(ctx context.Context) error
+	ValidateDescriptor(ctx context.Context) error
 
-	// GetBillOfMaterials gets sbom found from the given cacher or generates from the ingress resource blobs.
-	GetBillOfMaterials(ctx context.Context, cacher cache.CacheInterface) error
+	// GetBillOfMaterials generates from the ingress resource blobs.
+	GetBillOfMaterials(ctx context.Context) error
 
-	// Validate validates the ingress resource with its sbom,
+	// ValidateBillOfMaterials validates the ingress resource with its sbom,
 	// which is slower but more accurate, and return nil if not block.
-	Validate(ctx context.Context) error
+	ValidateBillOfMaterials(ctx context.Context) error
 
 	// IngressPort identifies from EgressPort.
 	IngressPort()
 }
 
 type EgressPort interface {
-	// GetSample gets the resource sample from the given parameters.
-	GetSample(ctx context.Context, reqHeaders api.HeaderMap, reqBuf api.IoBuffer, reqTrailers api.HeaderMap, cacher cache.CacheInterface) (bool, error)
+	// GetDescriptor gets the resource descriptor from the given parameters.
+	GetDescriptor(ctx context.Context, reqHeaders api.HeaderMap, reqBuf api.IoBuffer, reqTrailers api.HeaderMap) (bool, error)
 
-	// GetBillOfMaterials gets sbom found from the given cacher or generates from the egress resource blobs.
-	GetBillOfMaterials(ctx context.Context, cacher cache.CacheInterface) error
+	// GetBillOfMaterials generates from the egress resource blobs.
+	GetBillOfMaterials(ctx context.Context) error
 
-	// Validate validates the egress resource with its sbom,
+	// ValidateBillOfMaterials validates the egress resource with its sbom,
 	// which is slower but more accurate, and return nil if not block.
-	Validate(ctx context.Context) error
+	ValidateBillOfMaterials(ctx context.Context) error
 
 	// EgressPort identifies from IngressPort.
 	EgressPort()

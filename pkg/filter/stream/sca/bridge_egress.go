@@ -3,15 +3,13 @@ package sca
 import (
 	"context"
 
-	"github.com/eko/gocache/v2/cache"
 	"mosn.io/api"
 	"mosn.io/mosn/pkg/log"
 )
 
-func NewEgressBridge(globalConfig *ResourceGlobalConfig, globalCacher cache.CacheInterface) StreamDualFilter {
+func NewEgressBridge(globalConfig *ResourceGlobalConfig) StreamDualFilter {
 	return &egressBridge{
 		globalConfig: globalConfig,
-		globalCacher: globalCacher,
 	}
 }
 
@@ -19,7 +17,6 @@ type egressBridge struct {
 	bridge
 
 	globalConfig *ResourceGlobalConfig
-	globalCacher cache.CacheInterface
 }
 
 func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf api.IoBuffer, trailers api.HeaderMap) api.StreamFilterStatus {
@@ -38,7 +35,7 @@ func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf
 	}
 
 	// try to get sample to confirm next step.
-	var found, err = egress.GetSample(ctx, headers, buf, trailers, x.globalCacher)
+	var found, err = egress.GetDescriptor(ctx, headers, buf, trailers)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error getting sample: %v", err)
 		x.SendHijackReplyError(err)
@@ -50,15 +47,7 @@ func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf
 	}
 
 	// dig out with the sbom, which can take from cache or directly generate by buffering bytes.
-	var cacher cache.CacheInterface
-	if cfg.GetSbomGeneratePolicy() == "" {
-		if x.globalConfig.GetSbomGeneratePolicy() == SBOMGeneratePolicyGenIfNotFound {
-			cacher = x.globalCacher
-		}
-	} else if cfg.GetSbomGeneratePolicy() == SBOMGeneratePolicyGenIfNotFound {
-		cacher = x.globalCacher
-	}
-	err = egress.GetBillOfMaterials(ctx, cacher)
+	err = egress.GetBillOfMaterials(ctx)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error getting sbom: %v", err)
 		x.SendHijackReplyError(err)
@@ -66,7 +55,7 @@ func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf
 	}
 
 	// ask evaluator via the above found sbom.
-	err = egress.Validate(ctx)
+	err = egress.ValidateBillOfMaterials(ctx)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error validating sbom: %v", err)
 		x.SendHijackReplyError(err)

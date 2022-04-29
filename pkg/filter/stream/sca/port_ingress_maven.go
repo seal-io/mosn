@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/anchore/syft/syft/source"
-	"github.com/eko/gocache/v2/cache"
 	"github.com/vifraa/gopom"
 	"golang.org/x/net/html/charset"
 	"mosn.io/api"
@@ -44,23 +43,32 @@ type mavenIngress struct {
 	checksumAlgorithm  string
 
 	// fetched
-	packageSample MavenIngressPackageSample
-	packageSBOM   stdjson.RawMessage
+	packageDescriptor MavenIngressPackageDescriptor
+	packageSBOM       stdjson.RawMessage
 }
 
-type MavenIngressPackageSample struct {
-	Checksum    string `json:"checksum"`
-	Packaging   string `json:"packaging"`
-	Path        string `json:"path"`
-	GroupID     string `json:"groupId"`
-	ArtifactID  string `json:"artifactId"`
-	Version     string `json:"version"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	URL         string `json:"url,omitempty"`
+type MavenIngressPackageDescriptor struct {
+	Path              string `json:"path"`
+	ChecksumAlgorithm string `json:"checksumAlgorithm"`
+	Checksum          string `json:"checksum"`
+	GroupID           string `json:"groupId"`
+	ArtifactID        string `json:"artifactId"`
+	Version           string `json:"version"`
+	Packaging         string `json:"packaging"`
 }
 
-func (m *mavenIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, _ api.HeaderMap, _ cache.CacheInterface) (bool, error) {
+func (s MavenIngressPackageDescriptor) GetName() string {
+	return s.GroupID + "/" + s.ArtifactID + "/" + s.Version
+}
+
+func (s MavenIngressPackageDescriptor) GetID() string {
+	if len(s.Checksum) < 3 {
+		return ""
+	}
+	return "/maven/" + s.ChecksumAlgorithm + "/" + s.Checksum[:2] + "/" + s.Checksum
+}
+
+func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
 	// intercept content-type
 	var respContentType, _ = respHeaders.Get("Content-Type")
 	switch respContentType {
@@ -85,7 +93,7 @@ func (m *mavenIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap,
 		return false, nil
 	}
 
-	// parse response
+	// get metadata
 	var proj gopom.Project
 	var dec = xml.NewDecoder(bytes.NewBuffer(respBuf.Bytes()))
 	dec.CharsetReader = charset.NewReaderLabel
@@ -96,14 +104,15 @@ func (m *mavenIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap,
 		if proj.Packaging == "" {
 			return "jar"
 		}
-		return proj.Packaging
+		return strings.ToLower(proj.Packaging)
 	}()
 	if packaging == "pom" { // nothing to do if vendor parent project
 		return false, nil
 	}
 	var path = strings.TrimSuffix(reqPath, ".pom") + "." + packaging
+	var groupID, artifactID, version = proj.GroupID, proj.ArtifactID, proj.Version
 
-	// get sha1 checksum
+	// get checksum
 	var checksum []byte
 	var checksumCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
 	err = variable.SetString(checksumCtx, types.VarPath, path+"."+m.checksumAlgorithm)
@@ -135,38 +144,38 @@ func (m *mavenIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap,
 		return false, errors.New("cannot get checksum")
 	}
 
-	m.packageSample = MavenIngressPackageSample{
-		Checksum:    string(checksum),
-		Packaging:   packaging,
-		Path:        path,
-		GroupID:     proj.GroupID,
-		ArtifactID:  proj.ArtifactID,
-		Version:     proj.Version,
-		Name:        proj.Name,
-		Description: proj.Description,
-		URL:         proj.URL,
+	m.packageDescriptor = MavenIngressPackageDescriptor{
+		Path:              path,
+		ChecksumAlgorithm: m.checksumAlgorithm,
+		Checksum:          string(checksum),
+		GroupID:           groupID,
+		ArtifactID:        artifactID,
+		Version:           version,
+		Packaging:         packaging,
 	}
 	return true, nil
 }
 
-func (m *mavenIngress) ValidateSample(ctx context.Context) error {
+func (m *mavenIngress) ValidateDescriptor(ctx context.Context) error {
 	return nil
 }
 
-func (m *mavenIngress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInterface) error {
-	// get blobs
+func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 	var sbomBytes []byte
+
+	// generate from the downloaded blobs.
+	type blobFetchedResponse struct {
+		content []byte
+	}
+	var blobFetchedResult blobFetchedResponse
 	var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
-	var err = variable.SetString(blobCtx, types.VarPath, m.packageSample.Path)
+	var err = variable.SetString(blobCtx, types.VarPath, m.packageDescriptor.Path)
 	if err != nil {
 		return fmt.Errorf("error setting blob forward path: %w", err)
 	}
-	var blobReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
+	var blobFetchingReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
 		if respCode != stdhttp.StatusOK {
-			return nil
-		}
-		if respHeaders == nil {
-			return nil
+			return fmt.Errorf("unexpected response status: %d", respCode)
 		}
 		var contentType, _ = respHeaders.Get("Content-Type")
 		switch contentType {
@@ -174,33 +183,37 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInte
 			return fmt.Errorf("invalid blob content type %s", contentType)
 		case "application/java-archive", "application/jar":
 		}
-		if respData == nil {
-			return nil
+		if respData == nil || respData.Len() == 0 {
+			return errors.New("empty response body")
 		}
-		src, err := source.NewFromFileBuffer(m.packageSample.Path, bytes.NewBuffer(respData.Bytes()))
-		if err != nil {
-			return fmt.Errorf("error creating sbom scanning source: %w", err)
-		}
-		sbomBytes, err = m.GenerateSBOM(ctx, src)
-		if err != nil {
-			return fmt.Errorf("error generating sbom: %w", err)
-		}
+		blobFetchedResult.content = respData.Bytes()
 		return nil
 	}
-	var blobForwardErr = m.Forward(blobCtx, m.route.RouteRule().ClusterName(ctx), blobReceiver)
-	if blobForwardErr != nil {
-		return blobForwardErr
+	var blobFetchingErr = m.Forward(blobCtx, m.route.RouteRule().ClusterName(ctx), blobFetchingReceiver)
+	if blobFetchingErr != nil {
+		return blobFetchingErr
+	}
+
+	src, err := source.NewFromFileBuffer(m.packageDescriptor.Path, bytes.NewBuffer(blobFetchedResult.content))
+	if err != nil {
+		return fmt.Errorf("error creating sbom scanning source: %w", err)
+	}
+	sbomBytes, err = m.GenerateSBOM(ctx, src)
+	if err != nil {
+		return fmt.Errorf("error generating sbom: %w", err)
 	}
 	if len(sbomBytes) == 0 {
 		return errors.New("invalid sbom of pulling maven archive")
 	}
-
 	m.packageSBOM = sbomBytes
-	log.Proxy.Infof(ctx, "[maven/package_pull] sbom generated: \n%s", string(sbomBytes))
+	if log.Proxy.GetLogLevel() >= log.DEBUG {
+		log.Proxy.Debugf(ctx, "maven ingress sbom generated: %s", string(sbomBytes))
+	}
+
 	return nil
 }
 
-func (m *mavenIngress) Validate(ctx context.Context) error {
+func (m *mavenIngress) ValidateBillOfMaterials(ctx context.Context) error {
 	var headers, ok = mosnctx.Get(ctx, types.ContextKeyDownStreamHeaders).(api.HeaderMap)
 	if !ok {
 		return errors.New("cannot find downstream headers")

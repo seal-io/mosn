@@ -12,6 +12,7 @@ require (
 	github.com/SkyAPM/go2sky v0.5.0
 	github.com/TarsCloud/TarsGo v1.1.4
 	github.com/alibaba/sentinel-golang v1.0.2-0.20210112133552-db6063eb263e
+	github.com/allegro/bigcache/v3 v3.0.2
 	github.com/anchore/stereoscope v0.0.0-20220406160859-c03a18a6b270
 	github.com/anchore/syft v0.44.0
 	github.com/apache/dubbo-go-hessian2 v1.10.2
@@ -38,7 +39,6 @@ require (
 	github.com/miekg/dns v1.1.41
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/opentrx/seata-golang/v2 v2.0.4
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/client_model v0.2.0

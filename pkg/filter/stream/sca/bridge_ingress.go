@@ -3,15 +3,13 @@ package sca
 import (
 	"context"
 
-	"github.com/eko/gocache/v2/cache"
 	"mosn.io/api"
 	"mosn.io/mosn/pkg/log"
 )
 
-func NewIngressBridge(globalConfig *ResourceGlobalConfig, globalCacher cache.CacheInterface) StreamDualFilter {
+func NewIngressBridge(globalConfig *ResourceGlobalConfig) StreamDualFilter {
 	return &ingressBridge{
 		globalConfig: globalConfig,
-		globalCacher: globalCacher,
 	}
 }
 
@@ -19,7 +17,6 @@ type ingressBridge struct {
 	bridge
 
 	globalConfig *ResourceGlobalConfig
-	globalCacher cache.CacheInterface
 }
 
 func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf api.IoBuffer, trailers api.HeaderMap) api.StreamFilterStatus {
@@ -40,7 +37,7 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 	}
 
 	// try to get sample to confirm next step.
-	var found, err = ingress.GetSample(ctx, headers, buf, trailers, x.globalCacher)
+	var found, err = ingress.GetDescriptor(ctx, headers, buf, trailers)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error getting sample: %v", err)
 		x.SendHijackReplyError(err)
@@ -52,7 +49,7 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 	}
 
 	// use the found sample to validate some explicit threats.
-	err = ingress.ValidateSample(ctx)
+	err = ingress.ValidateDescriptor(ctx)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error validating metadata: %v", err)
 		x.SendHijackReplyError(err)
@@ -61,15 +58,7 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 
 	// if there are no explicit threats, then dig out with the sbom,
 	// which can take from cache or directly ask from upstream.
-	var cacher cache.CacheInterface
-	if policy := cfg.GetSbomGeneratePolicy(); policy == SBOMGeneratePolicyGenIfNotFound {
-		cacher = x.globalCacher
-	} else if policy == "" {
-		if globalPolicy := x.globalConfig.GetSbomGeneratePolicy(); globalPolicy == SBOMGeneratePolicyGenIfNotFound {
-			cacher = x.globalCacher
-		}
-	}
-	err = ingress.GetBillOfMaterials(ctx, cacher)
+	err = ingress.GetBillOfMaterials(ctx)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error getting sbom: %v", err)
 		x.SendHijackReplyError(err)
@@ -77,7 +66,7 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 	}
 
 	// ask evaluator via the above found sbom.
-	err = ingress.Validate(ctx)
+	err = ingress.ValidateBillOfMaterials(ctx)
 	if err != nil {
 		log.Proxy.Errorf(ctx, "error validating sbom: %v", err)
 		x.SendHijackReplyError(err)

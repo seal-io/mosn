@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/anchore/syft/syft/source"
-	"github.com/eko/gocache/v2/cache"
 	"mosn.io/api"
 	mosnctx "mosn.io/mosn/pkg/context"
 	"mosn.io/mosn/pkg/log"
@@ -37,16 +36,17 @@ type mavenEgress struct {
 	route              api.Route
 
 	// fetched
-	packageSample MavenEgressPackageSample
-	packageSBOM   stdjson.RawMessage
+	packageDescriptor MavenEgressPackageDescriptor
+	packageSBOM       stdjson.RawMessage
 }
 
-type MavenEgressPackageSample struct {
-	Path    string             `json:"path"`
-	Content stdjson.RawMessage `json:"content"`
+type MavenEgressPackageDescriptor struct {
+	MavenIngressPackageDescriptor
+
+	rawData stdjson.RawMessage
 }
 
-func (m *mavenEgress) GetSample(ctx context.Context, reqHeaders api.HeaderMap, reqBuf api.IoBuffer, _ api.HeaderMap, _ cache.CacheInterface) (bool, error) {
+func (m *mavenEgress) GetDescriptor(ctx context.Context, reqHeaders api.HeaderMap, reqBuf api.IoBuffer, reqTrailers api.HeaderMap) (bool, error) {
 	// intercept method
 	reqMethod, err := variable.GetString(ctx, types.VarMethod)
 	if err != nil {
@@ -68,32 +68,38 @@ func (m *mavenEgress) GetSample(ctx context.Context, reqHeaders api.HeaderMap, r
 	case ".jar", ".war", ".ear", ".par", ".sar", ".jpi", ".hpi", ".lpkg":
 	}
 
-	m.packageSample = MavenEgressPackageSample{
-		Path:    reqPath,
-		Content: reqBuf.Bytes(),
+	m.packageDescriptor = MavenEgressPackageDescriptor{
+		MavenIngressPackageDescriptor: MavenIngressPackageDescriptor{
+			Path: reqPath,
+		},
+		rawData: reqBuf.Bytes(),
 	}
 	return true, nil
 }
 
-func (m *mavenEgress) GetBillOfMaterials(ctx context.Context, _ cache.CacheInterface) error {
-	var src, err = source.NewFromFileBuffer(m.packageSample.Path, bytes.NewBuffer(m.packageSample.Content))
+func (m *mavenEgress) GetBillOfMaterials(ctx context.Context) error {
+	var sbomBytes []byte
+
+	// otherwise, generate from the downloaded blobs.
+	src, err := source.NewFromFileBuffer(m.packageDescriptor.Path, bytes.NewBuffer(m.packageDescriptor.rawData))
 	if err != nil {
 		return fmt.Errorf("error creating sbom scanning source: %w", err)
 	}
-	sbomBytes, err := m.GenerateSBOM(ctx, src)
+	sbomBytes, err = m.GenerateSBOM(ctx, src)
 	if err != nil {
 		return fmt.Errorf("error generating sbom: %w", err)
 	}
 	if len(sbomBytes) == 0 {
 		return errors.New("invalid sbom of pushing maven archive")
 	}
-
 	m.packageSBOM = sbomBytes
-	log.Proxy.Infof(ctx, "[maven/package_push] sbom generated: \n%s", string(sbomBytes))
+	if log.Proxy.GetLogLevel() >= log.DEBUG {
+		log.Proxy.Debugf(ctx, "maven egress sbom generated: %s", string(sbomBytes))
+	}
 	return nil
 }
 
-func (m *mavenEgress) Validate(ctx context.Context) error {
+func (m *mavenEgress) ValidateBillOfMaterials(ctx context.Context) error {
 	var headers, ok = mosnctx.Get(ctx, types.ContextKeyDownStreamHeaders).(api.HeaderMap)
 	if !ok {
 		return errors.New("cannot find downstream headers")

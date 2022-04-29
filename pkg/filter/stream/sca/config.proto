@@ -13,12 +13,10 @@ message ResourceEvaluator {
 
 message ResourceGlobalConfig {
   ResourceEvaluator evaluator = 1;
-  string sbom_generate_policy = 2;
-  bool push_enabled = 3;
+  bool push_enabled = 2;
 }
 
 message ResourceConfig {
-  map<string, string> evaluator_extra_args = 1;
-  string sbom_generate_policy = 2;
-  string type = 3;
+  string type = 1;
+  map<string, string> evaluator_extra_args = 2;
 }

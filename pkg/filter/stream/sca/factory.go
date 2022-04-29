@@ -3,10 +3,7 @@ package sca
 import (
 	"context"
 
-	"github.com/eko/gocache/v2/cache"
-	"github.com/eko/gocache/v2/store"
 	jsoniter "github.com/json-iterator/go"
-	gocache "github.com/patrickmn/go-cache"
 	"mosn.io/api"
 	v2 "mosn.io/mosn/pkg/config/v2"
 )
@@ -22,21 +19,19 @@ func CreateFilterChainFactory(config map[string]interface{}) (api.StreamFilterCh
 	if err != nil {
 		return nil, err
 	}
-	var cacher = cache.New(store.NewGoCache(gocache.New(gocache.NoExpiration, 0), nil))
+
 	return factory{
 		config: cfg,
-		cacher: cacher,
 	}, nil
 }
 
 type factory struct {
 	config *ResourceGlobalConfig
-	cacher cache.CacheInterface
 }
 
 func (x factory) CreateFilterChain(ctx context.Context, callbacks api.StreamFilterChainFactoryCallbacks) {
 	// pulling
-	var ingressFilter = NewIngressBridge(x.config, x.cacher)
+	var ingressFilter = NewIngressBridge(x.config)
 	callbacks.AddStreamReceiverFilter(ingressFilter, api.AfterChooseHost)
 	callbacks.AddStreamSenderFilter(ingressFilter, api.BeforeSend)
 
@@ -44,7 +39,7 @@ func (x factory) CreateFilterChain(ctx context.Context, callbacks api.StreamFilt
 		return
 	}
 	// pushing
-	var egressFilter = NewEgressBridge(x.config, x.cacher)
+	var egressFilter = NewEgressBridge(x.config)
 	callbacks.AddStreamReceiverFilter(egressFilter, api.AfterChooseHost)
 	callbacks.AddStreamSenderFilter(egressFilter, api.BeforeSend)
 }

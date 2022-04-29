@@ -12,7 +12,6 @@ import (
 
 	"github.com/anchore/stereoscope/pkg/image"
 	"github.com/anchore/syft/syft/source"
-	"github.com/eko/gocache/v2/cache"
 	conreg "github.com/google/go-containerregistry/pkg/v1"
 	conregempty "github.com/google/go-containerregistry/pkg/v1/empty"
 	conregmutate "github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -48,21 +47,24 @@ type dockerIngress struct {
 	checksumAlgorithm  string
 
 	// fetched
-	packageSample DockerIngressPackageSample
-	packageSBOM   stdjson.RawMessage
+	packageDescriptor DockerIngressPackageDescriptor
+	packageSBOM       stdjson.RawMessage
 }
 
-type DockerIngressPackageSample struct {
-	Path              string             `json:"path"`
-	Repository        string             `json:"repository"`
-	Namespace         string             `json:"namespace"`
-	Name              string             `json:"name"`
-	Tag               string             `json:"tag"`
-	ManifestMediaType string             `json:"manifestMediaType"`
-	Manifest          stdjson.RawMessage `json:"manifest"`
+type DockerIngressPackageDescriptor struct {
+	Path              string `json:"path"`
+	ChecksumAlgorithm string `json:"checksumAlgorithm"`
+	Checksum          string `json:"checksum"`
+	Repository        string `json:"repository"`
+	Namespace         string `json:"namespace"`
+	Name              string `json:"name"`
+	Tag               string `json:"tag"`
+
+	// internal
+	rawManifest stdjson.RawMessage
 }
 
-func (s DockerIngressPackageSample) ImageName() string {
+func (s DockerIngressPackageDescriptor) GetName() string {
 	var sb strings.Builder
 	if s.Repository != "registry-1.docker.io" && s.Repository != "docker.io" {
 		sb.WriteString(s.Repository)
@@ -79,7 +81,14 @@ func (s DockerIngressPackageSample) ImageName() string {
 	return sb.String()
 }
 
-func (m *dockerIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap, cacher cache.CacheInterface) (bool, error) {
+func (s DockerIngressPackageDescriptor) GetID() string {
+	if len(s.Checksum) < 3 {
+		return ""
+	}
+	return "/docker/" + s.ChecksumAlgorithm + "/" + s.Checksum[:2] + "/" + s.Checksum
+}
+
+func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
 	// intercept content-type
 	var respContentType, _ = respHeaders.Get("Content-Type")
 	switch respContentType {
@@ -102,7 +111,7 @@ func (m *dockerIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap
 	}
 	var reqPaths = strings.Split(reqPath, "/")
 	for i := 0; i < len(reqPaths); i++ {
-		// ensure oci api
+		// we only support v2 apiversion currently.
 		if reqPaths[i] == "v2" {
 			reqPaths = reqPaths[i:]
 			break
@@ -115,78 +124,79 @@ func (m *dockerIngress) GetSample(ctx context.Context, respHeaders api.HeaderMap
 		return false, nil
 	}
 
+	// get metadata
 	repository, err := variable.GetString(ctx, types.VarIstioHeaderHost)
 	if err != nil {
-		return false, EncodeDockerReplyError(fmt.Errorf("error getting %s variable: %w", types.VarIstioHeaderHost, err))
+		return false, EncodeDockerReplyError(fmt.Errorf("error getting repository: %w", err))
 	}
+	var namespace, name, tag = reqPaths[1], reqPaths[2], reqPaths[4]
 
-	m.packageSample = DockerIngressPackageSample{
+	// get checksum
+	var checksum = strings.TrimPrefix(reqPaths[4], m.checksumAlgorithm+":")
+
+	m.packageDescriptor = DockerIngressPackageDescriptor{
 		Path:              reqPath,
+		ChecksumAlgorithm: m.checksumAlgorithm,
+		Checksum:          checksum,
 		Repository:        repository,
-		Namespace:         reqPaths[1],
-		Name:              reqPaths[2],
-		Tag:               reqPaths[4],
-		ManifestMediaType: respContentType,
-		Manifest:          respBuf.Bytes(),
+		Namespace:         namespace,
+		Name:              name,
+		Tag:               tag,
+		rawManifest:       respBuf.Bytes(),
 	}
 	return true, nil
 }
 
-func (m *dockerIngress) ValidateSample(ctx context.Context) error {
+func (m *dockerIngress) ValidateDescriptor(ctx context.Context) error {
 	return nil
 }
 
-func (m *dockerIngress) GetBillOfMaterials(ctx context.Context, cacher cache.CacheInterface) error {
-	// get blobs
-	var manifest, err = conreg.ParseManifest(bytes.NewBuffer(m.packageSample.Manifest))
-	if err != nil {
-		return EncodeDockerReplyError(fmt.Errorf("error parsing manifest in %s format: %w", m.packageSample.ManifestMediaType, err))
-	}
+func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
+	var sbomBytes []byte
 
-	type layerFetchedResult struct {
+	// generate from the downloaded blobs.
+	type blobFetchedResponse struct {
 		order     int
 		content   []byte
 		mediaType conregtypes.MediaType
 	}
-	var layerFetchedResults = make([]layerFetchedResult, 0, len(manifest.Layers)+1)
-	var layersWantToFetch = append(append(make([]conreg.Descriptor, 0, cap(layerFetchedResults)), manifest.Layers...), manifest.Config)
-	for i := range layersWantToFetch {
+	manifest, err := conreg.ParseManifest(bytes.NewBuffer(m.packageDescriptor.rawManifest))
+	if err != nil {
+		return EncodeDockerReplyError(fmt.Errorf("error parsing manifest format: %w", err))
+	}
+	var blobFetchedResults = make([]blobFetchedResponse, 0, len(manifest.Layers)+1)
+	var descriptors = append(append(make([]conreg.Descriptor, 0, cap(blobFetchedResults)), manifest.Layers...), manifest.Config)
+	for i := range descriptors {
 		var blobOrder = i
-		var blobURL = strings.Join([]string{"", "v2", m.packageSample.Namespace, m.packageSample.Name, "blobs", layersWantToFetch[blobOrder].Digest.String()}, "/")
+		var blobURL = strings.Join([]string{"/v2", m.packageDescriptor.Namespace, m.packageDescriptor.Name, "blobs", descriptors[blobOrder].Digest.String()}, "/")
 		var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
 		var err = variable.SetString(blobCtx, types.VarPath, blobURL)
 		if err != nil {
 			return EncodeDockerReplyError(fmt.Errorf("error setting blob forward path: %w", err))
 		}
-		var blobBytes []byte
-		var blobReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
+		var blobContent []byte
+		var blobFetchingReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
 			if respCode != stdhttp.StatusOK {
-				return nil
-			}
-			if respHeaders == nil {
-				return nil
+				return fmt.Errorf("unexpected response status: %d", respCode)
 			}
 			var contentType, _ = respHeaders.Get("Content-Type")
 			if contentType != "application/octet-stream" {
 				return fmt.Errorf("invalid blob content type %s", contentType)
 			}
-			if respData == nil {
-				return nil
+			if respData == nil || respData.Len() == 0 {
+				return errors.New("empty response body")
 			}
-			blobBytes = respData.Bytes()
+			blobContent = respData.Bytes()
 			return nil
 		}
-		var blobForwardErr = m.Forward(blobCtx, m.route.RouteRule().ClusterName(ctx), blobReceiver)
-		if blobForwardErr != nil {
-			return blobForwardErr
+		var blobFetchingErr = m.Forward(blobCtx, m.route.RouteRule().ClusterName(ctx), blobFetchingReceiver)
+		if blobFetchingErr != nil {
+			return EncodeDockerReplyError(blobFetchingErr)
 		}
-		if len(blobBytes) == 0 {
-			return EncodeDockerReplyError(fmt.Errorf("empty blob in %d", blobOrder))
-		}
-		layerFetchedResults = append(layerFetchedResults, layerFetchedResult{
+		blobFetchedResults = append(blobFetchedResults, blobFetchedResponse{
 			order:     blobOrder,
-			content:   blobBytes,
-			mediaType: layersWantToFetch[blobOrder].MediaType,
+			content:   blobContent,
+			mediaType: descriptors[blobOrder].MediaType,
 		})
 	}
 
@@ -194,11 +204,11 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context, cacher cache.Cac
 	if err != nil {
 		return fmt.Errorf("error appending image layer 0: %w", err)
 	}
-	for i := range layerFetchedResults {
-		if i == len(layerFetchedResults)-1 {
+	for i := range blobFetchedResults {
+		if i == len(blobFetchedResults)-1 {
 			break
 		}
-		var result = layerFetchedResults[i]
+		var result = blobFetchedResults[i]
 		var layer, err = partial.CompressedToLayer(conregstatic.NewLayer(result.content, result.mediaType))
 		if err != nil {
 			return fmt.Errorf("error perparing compressed image layer %d: %w", i+1, err)
@@ -208,32 +218,32 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context, cacher cache.Cac
 			return fmt.Errorf("error appending image layer %d: %w", i+1, err)
 		}
 	}
-
 	var img = image.NewImage(rawImage, os.TempDir(),
-		image.WithConfig(layerFetchedResults[len(layerFetchedResults)-1].content),
-		image.WithManifest(m.packageSample.Manifest))
+		image.WithConfig(blobFetchedResults[len(blobFetchedResults)-1].content),
+		image.WithManifest(m.packageDescriptor.rawManifest))
 	if err = img.Read(); err != nil {
 		return fmt.Errorf("error reading image: %w", err)
 	}
-
-	src, err := source.NewFromImage(img, m.packageSample.ImageName())
+	src, err := source.NewFromImage(img, m.packageDescriptor.GetName())
 	if err != nil {
 		return fmt.Errorf("error creating sbom scanning source: %w", err)
 	}
-	sbomBytes, err := m.GenerateSBOM(ctx, src)
+	sbomBytes, err = m.GenerateSBOM(ctx, src)
 	if err != nil {
 		return fmt.Errorf("error generating sbom: %w", err)
 	}
 	if len(sbomBytes) == 0 {
 		return errors.New("invalid sbom of pulling docker image")
 	}
-
 	m.packageSBOM = sbomBytes
-	log.Proxy.Infof(ctx, "[docker/package_pull] sbom generated: \n%s", string(sbomBytes))
+	if log.Proxy.GetLogLevel() >= log.DEBUG {
+		log.Proxy.Debugf(ctx, "docker ingress sbom generated: %s", string(sbomBytes))
+	}
+
 	return nil
 }
 
-func (m *dockerIngress) Validate(ctx context.Context) error {
+func (m *dockerIngress) ValidateBillOfMaterials(ctx context.Context) error {
 	var headers, ok = mosnctx.Get(ctx, types.ContextKeyDownStreamHeaders).(api.HeaderMap)
 	if !ok {
 		return EncodeDockerReplyError(errors.New("cannot find downstream headers"))
