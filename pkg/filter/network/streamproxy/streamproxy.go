@@ -115,7 +115,7 @@ func (p *proxy) getUpstreamConnection(ctx types.LoadBalancerContext, snapshot ty
 func (p *proxy) initializeUpstreamConnection() api.FilterStatus {
 	clusterName := p.getUpstreamCluster()
 
-	clusterSnapshot := p.clusterManager.GetClusterSnapshot(context.Background(), clusterName)
+	clusterSnapshot := p.clusterManager.GetClusterSnapshot(clusterName)
 
 	if clusterSnapshot == nil || reflect.ValueOf(clusterSnapshot).IsNil() {
 		p.requestInfo.SetResponseFlag(api.NoRouteFound)

@@ -123,7 +123,7 @@ func (mr *MockClusterManagerMockRecorder) Destroy() *gomock.Call {
 }
 
 // GetClusterSnapshot mocks base method.
-func (m *MockClusterManager) GetClusterSnapshot(context context.Context, cluster string) types.ClusterSnapshot {
+func (m *MockClusterManager) GetClusterSnapshot(cluster string) types.ClusterSnapshot {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetClusterSnapshot", context, cluster)
 	ret0, _ := ret[0].(types.ClusterSnapshot)

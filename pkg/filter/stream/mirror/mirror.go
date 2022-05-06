@@ -87,7 +87,7 @@ func (m *mirror) OnReceive(ctx context.Context, headers api.HeaderMap, buf buffe
 
 		m.dp, m.up = m.getProtocol()
 
-		snap := clusterAdapter.GetClusterSnapshot(ctx, clusterName)
+		snap := clusterAdapter.GetClusterSnapshot(clusterName)
 		if snap == nil {
 			log.DefaultLogger.Errorf("mirror cluster {%s} not found", clusterName)
 			return

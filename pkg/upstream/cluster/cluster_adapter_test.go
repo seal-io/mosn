@@ -18,7 +18,6 @@
 package cluster
 
 import (
-	"context"
 	"testing"
 
 	"mosn.io/api"
@@ -68,7 +67,7 @@ func TestClusterManagerFromConfig(t *testing.T) {
 	// create simple example config
 	_createClusterManager()
 	// use get for test
-	snap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	snap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	// check hosts exists
 	// check subset exists
 	mockLb1 := newMockLbContext(map[string]string{
@@ -148,7 +147,7 @@ func TestClusterManagerUpdateCluster(t *testing.T) {
 		t.Fatal("update cluster failed: ", err)
 	}
 
-	snapshot := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	snapshot := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	rm := snapshot.ClusterInfo().ResourceManager()
 	if rm.Connections().Max() != uint64(maxc) {
 		t.Fatal("ResourceManager update failed")
@@ -222,7 +221,7 @@ func TestClusterManagerUpdateCluster(t *testing.T) {
 		t.Fatal("update cluster failed: ", err)
 	}
 
-	snapshot = GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	snapshot = GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	pool, _ = GetClusterMngAdapterInstance().ConnPoolForCluster(mockLbCtx, snapshot, mockProtocol)
 	if pool.Host().ClusterInfo().ResourceManager().Connections().Max() != uint64(maxc1) {
 		t.Fatal("update cluster resource failed")
@@ -240,7 +239,7 @@ func TestClusterManagerUpdateCluster(t *testing.T) {
 		},
 	})
 	// pool keeps snapshot
-	snapshot = GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	snapshot = GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	pool, _ = GetClusterMngAdapterInstance().ConnPoolForCluster(mockLbCtx, snapshot, mockProtocol)
 	if !pool.Host().SupportTLS() {
 		t.Fatal("pool should support tls")
@@ -279,7 +278,7 @@ func TestClusterManagerUpdateClusterSelectors(t *testing.T) {
 	}); err != nil {
 		t.Fatal("update cluster failed:", err)
 	}
-	snap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	snap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	if host := snap.LoadBalancer().ChooseHost(newMockLbContext((map[string]string{
 		"zone":    "a",
 		"version": "1.0.0",
@@ -303,7 +302,7 @@ func TestClusterUpdateHostsWithSnapshot(t *testing.T) {
 		"version": "1.0.0",
 		"zone":    "b",
 	})
-	oldSnap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	oldSnap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	// Update Hosts
 	GetClusterMngAdapterInstance().TriggerClusterHostUpdate("test1", []v2.Host{
 		{
@@ -324,7 +323,7 @@ func TestClusterUpdateHostsWithSnapshot(t *testing.T) {
 			},
 		},
 	})
-	newSnap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	newSnap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	if !(oldSnap.IsExistsHosts(mockLb1.MetadataMatchCriteria()) &&
 		oldSnap.IsExistsHosts(mockLb2.MetadataMatchCriteria()) &&
 		oldSnap.IsExistsHosts(mockLb3.MetadataMatchCriteria())) {
@@ -339,7 +338,7 @@ func TestClusterUpdateHostsWithSnapshot(t *testing.T) {
 
 func TestClusterAppendHostWithSnapshot(t *testing.T) {
 	_createClusterManager()
-	oldSnap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	oldSnap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	GetClusterMngAdapterInstance().TriggerHostAppend("test1", []v2.Host{
 		{
 			HostConfig: v2.HostConfig{
@@ -347,7 +346,7 @@ func TestClusterAppendHostWithSnapshot(t *testing.T) {
 			},
 		},
 	})
-	newSnap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	newSnap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	if !(len(oldSnap.HostSet().Hosts()) == 2 && len(newSnap.HostSet().Hosts()) == 3) {
 		t.Fatalf("append hosts snapshot check failed, old: %d, new: %d ", len(oldSnap.HostSet().Hosts()), len(newSnap.HostSet().Hosts()))
 	}
@@ -355,9 +354,9 @@ func TestClusterAppendHostWithSnapshot(t *testing.T) {
 
 func TestClusterRemoveHostWithSnapshot(t *testing.T) {
 	_createClusterManager()
-	oldSnap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	oldSnap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	GetClusterMngAdapterInstance().TriggerHostDel("test1", []string{"127.0.0.1:10001"})
-	newSnap := GetClusterMngAdapterInstance().GetClusterSnapshot(context.Background(), "test1")
+	newSnap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	if !(len(oldSnap.HostSet().Hosts()) == 2 && len(newSnap.HostSet().Hosts()) == 1) {
 		t.Fatal("remove hosts snapshot check failed")
 	}
@@ -365,7 +364,7 @@ func TestClusterRemoveHostWithSnapshot(t *testing.T) {
 
 func TestConnPoolForCluster(t *testing.T) {
 	_createClusterManager()
-	snap := GetClusterMngAdapterInstance().GetClusterSnapshot(nil, "test1")
+	snap := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	connPool, _ := GetClusterMngAdapterInstance().ConnPoolForCluster(newMockLbContext(nil), snap, mockProtocol)
 	if connPool == nil {
 		t.Fatal("get conn pool failed")
@@ -393,7 +392,7 @@ func TestConnPoolUpdateTLS(t *testing.T) {
 	NewClusterManagerSingleton([]v2.Cluster{clusterConfig}, map[string][]v2.Host{
 		"test1": []v2.Host{host},
 	}, nil)
-	snap1 := GetClusterMngAdapterInstance().GetClusterSnapshot(nil, "test1")
+	snap1 := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	connPool1, _ := GetClusterMngAdapterInstance().ConnPoolForCluster(newMockLbContext(nil), snap1, mockProtocol)
 	// TLSDisable always returns disable hash value
 	if !connPool1.TLSHashValue().Equal(disableTLSHashValue) {
@@ -408,7 +407,7 @@ func TestConnPoolUpdateTLS(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update cluster hosts failed, %v", err)
 	}
-	snap2 := GetClusterMngAdapterInstance().GetClusterSnapshot(nil, "test1")
+	snap2 := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	connPool2, _ := GetClusterMngAdapterInstance().ConnPoolForCluster(newMockLbContext(nil), snap2, mockProtocol)
 	cp2Hash := connPool2.TLSHashValue()
 	if cp2Hash.Equal(disableTLSHashValue) || cp2Hash.Equal(nil) || cp2Hash.Equal(clientSideDisableHashValue) {
@@ -444,7 +443,7 @@ func TestClusterManagerTLSUpdateTLS(t *testing.T) {
 	NewClusterManagerSingleton([]v2.Cluster{clusterConfig}, map[string][]v2.Host{
 		"test1": []v2.Host{host},
 	}, nil)
-	snap1 := GetClusterMngAdapterInstance().GetClusterSnapshot(nil, "test1")
+	snap1 := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	connPool1, _ := GetClusterMngAdapterInstance().ConnPoolForCluster(newMockLbContext(nil), snap1, mockProtocol)
 	// should returns disableTLSHashValue because TLSDisable is true
 	if !connPool1.TLSHashValue().Equal(disableTLSHashValue) {
@@ -476,7 +475,7 @@ func TestClusterManagerTLSUpdateTLS(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update cluster hosts failed, %v", err)
 	}
-	snap2 := GetClusterMngAdapterInstance().GetClusterSnapshot(nil, "test1")
+	snap2 := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	connPool4, _ := GetClusterMngAdapterInstance().ConnPoolForCluster(newMockLbContext(nil), snap2, mockProtocol)
 	// connpool snapshot keeps disable
 	if !connPool1.TLSHashValue().Equal(disableTLSHashValue) {
@@ -511,7 +510,7 @@ func TestClusterManagerTLSUpdateTLS(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update cluster hosts failed, %v", err)
 	}
-	snap3 := GetClusterMngAdapterInstance().GetClusterSnapshot(nil, "test1")
+	snap3 := GetClusterMngAdapterInstance().GetClusterSnapshot("test1")
 	connPool7, _ := GetClusterMngAdapterInstance().ConnPoolForCluster(newMockLbContext(nil), snap3, mockProtocol)
 	// connpool should be changed.
 	if !connPool7.TLSHashValue().Equal(disableTLSHashValue) {

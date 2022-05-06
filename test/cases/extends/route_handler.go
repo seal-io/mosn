@@ -18,7 +18,7 @@ func (h *extendHandler) IsAvailable(ctx context.Context, manager types.ClusterMa
 	rs := h.routers.MatchAllRoutes(ctx, h.headers)
 	for _, r := range rs {
 		name := r.RouteRule().ClusterName(ctx)
-		snap := manager.GetClusterSnapshot(ctx, name)
+		snap := manager.GetClusterSnapshot(name)
 		// Verify is cluster config exists hosts
 		if snap.IsExistsHosts(nil) {
 			h.route = r

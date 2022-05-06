@@ -43,7 +43,7 @@ func (port) GetProtocols(ctx context.Context) (downstreamProtocol types.Protocol
 // Forward forwards the get request to the given target cluster.
 func (p port) Forward(ctx context.Context, targetCluster string, receive PortForwardReceiver) error {
 	var clsMgrAdapter = cluster.GetClusterMngAdapterInstance()
-	var cls = clsMgrAdapter.GetClusterSnapshot(ctx, targetCluster)
+	var cls = clsMgrAdapter.GetClusterSnapshot(targetCluster)
 	if cls == nil {
 		return errors.New("cannot find target cluster")
 	}

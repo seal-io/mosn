@@ -87,7 +87,7 @@ func (c *mixerClient) tryConnect(retry bool) error {
 	if mngAdaper == nil {
 		return fmt.Errorf("mng adapter nil")
 	}
-	snapshot := mngAdaper.GetClusterSnapshot(context.Background(), c.reportCluster)
+	snapshot := mngAdaper.GetClusterSnapshot(c.reportCluster)
 	if snapshot == nil {
 		err := fmt.Errorf("get mixer server cluster config error, report cluster: %s", c.reportCluster)
 		log.DefaultLogger.Errorf("%s", err.Error())

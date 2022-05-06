@@ -39,10 +39,10 @@ func (cvt *xdsConverter) ConvertAddOrUpdateRouters(routers []*envoy_config_route
 	if routersMngIns := router.GetRoutersMangerInstance(); routersMngIns == nil {
 		log.DefaultLogger.Errorf("xds OnAddOrUpdateRouters error: router manager in nil")
 	} else {
-		for _, router := range routers {
-			log.DefaultLogger.Debugf("xds convert router config: %+v", router)
+		for _, rt := range routers {
+			log.DefaultLogger.Debugf("xds convert router config: %+v", rt)
 
-			mosnRouter, _ := ConvertRouterConf("", router)
+			mosnRouter, _ := ConvertRouterConf("", rt)
 			if err := routersMngIns.AddOrUpdateRouters(mosnRouter); err != nil {
 				log.DefaultLogger.Errorf("xds client  routersMngIns.AddOrUpdateRouters error: %v", err)
 			}
@@ -173,7 +173,7 @@ func (cvt *xdsConverter) ConvertDeleteClusters(clusters []*envoy_config_cluster_
 	}
 }
 
-// ConverUpdateEndpoints converts cluster configuration, used to udpate hosts
+// ConvertUpdateEndpoints converts cluster configuration, used to udpate hosts
 func (cvt *xdsConverter) ConvertUpdateEndpoints(loadAssignments []*envoy_config_endpoint_v3.ClusterLoadAssignment) error {
 	var errGlobal error
 	clusterMngAdapter := clusterAdapter.GetClusterMngAdapterInstance()

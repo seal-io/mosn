@@ -139,7 +139,7 @@ type mockClusterManager struct {
 	types.ClusterManager
 }
 
-func (m *mockClusterManager) GetClusterSnapshot(ctx context.Context, name string) types.ClusterSnapshot {
+func (m *mockClusterManager) GetClusterSnapshot(cluster string) types.ClusterSnapshot {
 	return &mockClusterSnapshot{}
 }
 func (m *mockClusterManager) PutClusterSnapshot(snapshot types.ClusterSnapshot) {

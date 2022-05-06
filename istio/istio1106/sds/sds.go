@@ -23,6 +23,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"path/filepath"
+	"strings"
 
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoy_extensions_transport_sockets_tls_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/transport_sockets/tls/v3"
@@ -36,6 +39,7 @@ import (
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/mtls/sds"
 	"mosn.io/mosn/pkg/types"
+	"mosn.io/mosn/pkg/upstream/cluster"
 )
 
 type SdsStreamClientImpl struct {
@@ -58,10 +62,11 @@ func CreateSdsStreamClient(config interface{}) (sds.SdsStreamClient, error) {
 		log.DefaultLogger.Alertf("sds.subscribe.config", "[xds][sds subscriber] convert sds config fail %v", err)
 		return nil, err
 	}
-	udsPath := "unix:" + sdsConfig.sdsUdsPath
+	endpoint := normalizeUnixSocksPath(sdsConfig.Endpoint)
 	conn, err := grpc.Dial(
-		udsPath,
+		endpoint,
 		grpc.WithInsecure(),
+		generateDialOption(),
 	)
 	if err != nil {
 		log.DefaultLogger.Alertf("sds.subscribe.stream", "[sds][subscribe] dial grpc server failed %v", err)
@@ -186,8 +191,8 @@ func (sc *SdsStreamClientImpl) Stop() {
 }
 
 type SdsStreamConfig struct {
-	sdsUdsPath string
-	statPrefix string
+	Endpoint   string
+	StatPrefix string
 }
 
 func ConvertConfig(config interface{}) (SdsStreamConfig, error) {
@@ -218,11 +223,20 @@ func ConvertConfig(config interface{}) (SdsStreamConfig, error) {
 				return sdsConfig, errors.New("unsupport sds config")
 			}
 			if grpcConfig, ok := grpcService[0].TargetSpecifier.(*envoy_config_core_v3.GrpcService_GoogleGrpc_); ok {
-				sdsConfig.sdsUdsPath = grpcConfig.GoogleGrpc.TargetUri
-				sdsConfig.statPrefix = grpcConfig.GoogleGrpc.StatPrefix
-			} else if _, ok := grpcService[0].TargetSpecifier.(*envoy_config_core_v3.GrpcService_EnvoyGrpc_); ok {
-				//FIXME: get path from cluster
-				sdsConfig.sdsUdsPath = "./etc/istio/proxy/SDS"
+				sdsConfig.Endpoint = grpcConfig.GoogleGrpc.TargetUri
+				sdsConfig.StatPrefix = grpcConfig.GoogleGrpc.StatPrefix
+			} else if grpcConfig, ok := grpcService[0].TargetSpecifier.(*envoy_config_core_v3.GrpcService_EnvoyGrpc_); ok {
+				clusterName := grpcConfig.EnvoyGrpc.ClusterName
+				var clsMgrAdapter = cluster.GetClusterMngAdapterInstance()
+				var cls = clsMgrAdapter.GetClusterSnapshot(clusterName)
+				if cls == nil {
+					return sdsConfig, errors.New("cannot find target cluster")
+				}
+				hosts := cls.HostSet().Hosts()
+				if len(hosts) == 0 {
+					return sdsConfig, errors.New("cannot find any host from target cluster")
+				}
+				sdsConfig.Endpoint = hosts[0].AddressString()
 			} else {
 				return sdsConfig, errors.New("unsupport sds target specifier")
 			}
@@ -246,4 +260,28 @@ func convertSecret(raw *envoy_extensions_transport_sockets_tls_v3.Secret) *types
 		secret.PrivateKeyPEM = string(priKey.InlineBytes)
 	}
 	return secret
+}
+
+const (
+	unixSocksPrefix       = "unix://"
+	unixSocksPrefixLength = len(unixSocksPrefix)
+)
+
+func normalizeUnixSocksPath(maybeUnixSocks string) (normalized string) {
+	if !strings.HasPrefix(maybeUnixSocks, unixSocksPrefix) {
+		normalized = maybeUnixSocks
+		return
+	}
+	absolutePath, _ := filepath.Abs(maybeUnixSocks[unixSocksPrefixLength:])
+	normalized = unixSocksPrefix + absolutePath
+	return
+}
+
+// [xds] [ads client] get resp timeout: rpc error: code = ResourceExhausted desc = grpc: received message larger than max (5193322 vs. 4194304), retry after 1s
+// https://github.com/istio/istio/blob/9686754643d0939c1f4dd0ee20443c51183f3589/pilot/pkg/bootstrap/server.go#L662
+// Istio xDS DiscoveryServer not set grpc MaxSendMsgSize. If this is not set, gRPC uses the default `math.MaxInt32`.
+func generateDialOption() grpc.DialOption {
+	return grpc.WithDefaultCallOptions(
+		grpc.MaxCallRecvMsgSize(math.MaxInt32),
+	)
 }

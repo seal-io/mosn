@@ -42,7 +42,7 @@ type ClusterManager interface {
 	AddClusterHealthCheckCallbacks(name string, cb HealthCheckCb) error
 
 	// Get, use to get the snapshot of a cluster
-	GetClusterSnapshot(context context.Context, cluster string) ClusterSnapshot
+	GetClusterSnapshot(cluster string) ClusterSnapshot
 
 	// Deprecated: PutClusterSnapshot exists for historical compatibility and should not be used.
 	PutClusterSnapshot(ClusterSnapshot)

@@ -97,7 +97,7 @@ func NewClusterManagerSingleton(clusters []v2.Cluster, clusterMap map[string][]v
 		clusterManagerInstance.protocolConnPool.Store(k, &sync.Map{})
 	})
 
-	//Add cluster to cm
+	// Add cluster to cm
 	for _, cluster := range clusters {
 		if err := clusterManagerInstance.AddOrUpdatePrimaryCluster(cluster); err != nil {
 			log.DefaultLogger.Alertf("cluster.config", "[upstream] [cluster manager] NewClusterManager: AddOrUpdatePrimaryCluster failure, cluster name = %s, error: %v", cluster.Name, err)
@@ -267,7 +267,7 @@ func (cm *clusterManager) RemoveClusterHosts(clusterName string, addrs []string)
 }
 
 // GetClusterSnapshot returns cluster snap
-func (cm *clusterManager) GetClusterSnapshot(ctx context.Context, clusterName string) types.ClusterSnapshot {
+func (cm *clusterManager) GetClusterSnapshot(clusterName string) types.ClusterSnapshot {
 	ci, ok := cm.clustersMap.Load(clusterName)
 	if !ok {
 		return nil

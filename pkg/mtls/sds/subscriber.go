@@ -81,7 +81,7 @@ func (subscribe *SdsSubscriber) getSdsStreamClient(config interface{}) error {
 	if subscribe.sdsStreamClient != nil {
 		return nil
 	}
-	streamClient, err := GetSdsStreamClient(subscribe.sdsConfig)
+	streamClient, err := GetSdsStreamClient(config)
 	if err != nil {
 		return err
 	}

@@ -325,7 +325,7 @@ func (rri *RouteRuleImplBase) finalizeRequestHeaders(ctx context.Context, header
 			variable.SetString(ctx, types.VarIstioHeaderHost, headerValue)
 		}
 	} else if rri.autoHostRewrite {
-		clusterSnapshot := cluster.GetClusterMngAdapterInstance().GetClusterSnapshot(context.TODO(), rri.routerAction.ClusterName)
+		clusterSnapshot := cluster.GetClusterMngAdapterInstance().GetClusterSnapshot(rri.routerAction.ClusterName)
 		if clusterSnapshot != nil && (clusterSnapshot.ClusterInfo().ClusterType() == v2.STRICT_DNS_CLUSTER) {
 			variable.SetString(ctx, types.VarIstioHeaderHost, requestInfo.UpstreamHost().Hostname())
 		}

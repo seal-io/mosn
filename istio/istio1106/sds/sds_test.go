@@ -201,7 +201,7 @@ func TestSdsWithDifferentConfig(t *testing.T) {
 	}
 	tls_server.GoListenAndServe()
 	defer tls_server.Close()
-	time.Sleep(time.Second) //wait server start
+	time.Sleep(time.Second) // wait server start
 	// make sure certificate is received
 	select {
 	case <-finish:
@@ -277,8 +277,8 @@ func TestConvertFromJson(t *testing.T) {
 		}
 		sdsConfig, err := ConvertConfig(scw.SdsConfig)
 		require.Nil(t, err)
-		require.Equal(t, "@/var/run/test", sdsConfig.sdsUdsPath)
-		require.Equal(t, "sds-prefix", sdsConfig.statPrefix)
+		require.Equal(t, "@/var/run/test", sdsConfig.Endpoint)
+		require.Equal(t, "sds-prefix", sdsConfig.StatPrefix)
 
 		// To Json string
 		b, err := json.Marshal(scw)
