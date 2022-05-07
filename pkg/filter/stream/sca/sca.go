@@ -1,4 +1,4 @@
-//go:generate protoc --go_out=. --proto_path=. --go_opt=paths=source_relative config.proto
+//go:generate protoc --go_out=. --proto_path=. --go_opt=paths=source_relative sca.proto
 
 package sca
 
@@ -19,6 +19,10 @@ import (
 func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*ResourceGlobalConfig, error) {
 	var c ResourceGlobalConfig
 	var err = anypb.UnmarshalTo(anyInput, &c, proto.UnmarshalOptions{})
+	if err != nil {
+		return nil, err
+	}
+	err = c.Validate()
 	if err != nil {
 		return nil, err
 	}
@@ -46,6 +50,10 @@ func ConvertAnyToConfig(anyInput *anypb.Any) (*ResourceConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	err = c.Validate()
+	if err != nil {
+		return nil, err
+	}
 	return &c, nil
 }
 
@@ -57,11 +65,15 @@ func ExtractConfigFromRouteConfig(r api.Route) *ResourceConfig {
 	if m == nil {
 		return nil
 	}
-	var v, ok = m[v2.SCA]
+	var v, ok = m[v2.HTTP_SCA]
 	if !ok {
 		return nil
 	}
 	return v.(*ResourceConfig)
+}
+
+func (x *ResourceGlobalConfig) Validate() error {
+	return nil
 }
 
 func (x *ResourceGlobalConfig) Encapsulate() map[string]interface{} {
@@ -71,6 +83,10 @@ func (x *ResourceGlobalConfig) Encapsulate() map[string]interface{} {
 	return map[string]interface{}{
 		"@data": x,
 	}
+}
+
+func (x *ResourceConfig) Validate() error {
+	return nil
 }
 
 func (x *ResourceConfig) Encapsulate() map[string]interface{} {

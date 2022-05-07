@@ -11,7 +11,7 @@ import (
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 func init() {
-	api.RegisterStream(v2.SCA, CreateFilterChainFactory)
+	api.RegisterStream(v2.HTTP_SCA, CreateFilterChainFactory)
 }
 
 func CreateFilterChainFactory(config map[string]interface{}) (api.StreamFilterChainFactory, error) {
@@ -31,7 +31,7 @@ type factory struct {
 
 func (x factory) CreateFilterChain(ctx context.Context, callbacks api.StreamFilterChainFactoryCallbacks) {
 	// pulling
-	var ingressFilter = NewIngressBridge(x.config)
+	var ingressFilter = NewIngressBridge(ctx, x.config)
 	callbacks.AddStreamReceiverFilter(ingressFilter, api.AfterChooseHost)
 	callbacks.AddStreamSenderFilter(ingressFilter, api.BeforeSend)
 
@@ -39,7 +39,7 @@ func (x factory) CreateFilterChain(ctx context.Context, callbacks api.StreamFilt
 		return
 	}
 	// pushing
-	var egressFilter = NewEgressBridge(x.config)
+	var egressFilter = NewEgressBridge(ctx, x.config)
 	callbacks.AddStreamReceiverFilter(egressFilter, api.AfterChooseHost)
 	callbacks.AddStreamSenderFilter(egressFilter, api.BeforeSend)
 }

@@ -148,14 +148,14 @@ func convertPerRouteConfig(xdsPerRouteConfig map[string]*any.Any) map[string]int
 				// log.DefaultLogger.Debugf("add a payload limit stream filter in router")
 				// perRouteConfig[v2.PayloadLimit] = cfg
 			}
-		case v2.SCA:
+		case v2.HTTP_SCA:
 			cfg, err := sca.ConvertAnyToConfig(config)
 			if err != nil {
-				log.DefaultLogger.Infof(" error: %v", v2.SCA, err)
+				log.DefaultLogger.Infof(" error: %v", v2.HTTP_SCA, err)
 				continue
 			}
 			log.DefaultLogger.Debugf("add a sbomgen stream filter in router")
-			perRouteConfig[v2.SCA] = cfg
+			perRouteConfig[v2.HTTP_SCA] = cfg
 		default:
 			log.DefaultLogger.Warnf("unknown per route config: %s", key)
 		}

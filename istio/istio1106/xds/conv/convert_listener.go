@@ -305,9 +305,9 @@ func convertStreamFilter(name string, s *any.Any) v2.Filter {
 				}
 			}
 		}
-	case v2.SCA:
-		filter.Type = v2.SCA
-		filter.Config, err = convertSCAGlobalConfig(s)
+	case v2.HTTP_SCA:
+		filter.Type = v2.HTTP_SCA
+		filter.Config, err = convertHTTPSCAGlobalConfig(s)
 		if err != nil {
 			log.DefaultLogger.Errorf("convert sca config error: %v", err)
 		}
@@ -952,7 +952,7 @@ func convertStreamRbacConfig(s *any.Any) (map[string]interface{}, error) {
 	return config, nil
 }
 
-func convertSCAGlobalConfig(in *any.Any) (map[string]interface{}, error) {
+func convertHTTPSCAGlobalConfig(in *any.Any) (map[string]interface{}, error) {
 	var cfg, err = sca.ConvertAnyToGlobalConfig(in)
 	if err != nil {
 		return nil, err
