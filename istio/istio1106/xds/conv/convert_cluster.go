@@ -20,6 +20,7 @@ package conv
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -155,7 +156,7 @@ func convertWeightedClusters(xdsWeightedClusters *envoy_config_route_v3.Weighted
 	for _, cluster := range xdsWeightedClusters.GetClusters() {
 		weightedCluster := v2.WeightedCluster{
 			Cluster: convertWeightedCluster(cluster),
-			//RuntimeKeyPrefix: xdsWeightedClusters.GetRuntimeKeyPrefix(),
+			// RuntimeKeyPrefix: xdsWeightedClusters.GetRuntimeKeyPrefix(),
 		}
 		weightedClusters = append(weightedClusters, weightedCluster)
 	}
@@ -214,14 +215,16 @@ func convertWeightedCluster(xdsWeightedCluster *envoy_config_route_v3.WeightedCl
 	}
 }
 
-func convertAddress(xdsAddress *envoy_config_core_v3.Address) net.Addr {
+func convertAddress(xdsAddress *envoy_config_core_v3.Address) (addr net.Addr) {
 	if xdsAddress == nil {
 		return nil
 	}
+	var protocol string
 	var address string
-	if addr, ok := xdsAddress.GetAddress().(*envoy_config_core_v3.Address_SocketAddress); ok {
-		if xdsPort, ok := addr.SocketAddress.GetPortSpecifier().(*envoy_config_core_v3.SocketAddress_PortValue); ok {
-			address = fmt.Sprintf("%s:%d", addr.SocketAddress.GetAddress(), xdsPort.PortValue)
+	if addrSpecifier, ok := xdsAddress.GetAddress().(*envoy_config_core_v3.Address_SocketAddress); ok {
+		if xdsPort, ok := addrSpecifier.SocketAddress.GetPortSpecifier().(*envoy_config_core_v3.SocketAddress_PortValue); ok {
+			protocol = strings.ToLower(xdsAddress.GetSocketAddress().GetProtocol().String())
+			address = fmt.Sprintf("%s:%d", addrSpecifier.SocketAddress.GetAddress(), xdsPort.PortValue)
 		} else {
 			log.DefaultLogger.Warnf("only port value supported")
 			return nil
@@ -231,12 +234,19 @@ func convertAddress(xdsAddress *envoy_config_core_v3.Address) net.Addr {
 		return nil
 	}
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+	var err error
+	switch protocol {
+	case "udp":
+		addr, err = net.ResolveUDPAddr("udp", address)
+	case "unix":
+		addr, err = net.ResolveUnixAddr("unix", address)
+	default:
+		addr, err = net.ResolveTCPAddr("tcp", address)
+	}
 	if err != nil {
 		log.DefaultLogger.Errorf("Invalid address: %v", err)
-		return nil
 	}
-	return tcpAddr
+	return addr
 }
 
 func convertClusterType(xdsClusterType envoy_config_cluster_v3.Cluster_DiscoveryType) v2.ClusterType {
@@ -251,7 +261,7 @@ func convertClusterType(xdsClusterType envoy_config_cluster_v3.Cluster_Discovery
 	case envoy_config_cluster_v3.Cluster_ORIGINAL_DST:
 		return v2.ORIGINALDST_CLUSTER
 	}
-	//log.DefaultLogger.Fatalf("unsupported cluster type: %s, exchange to SIMPLE_CLUSTER", xdsClusterType.String())
+	// log.DefaultLogger.Fatalf("unsupported cluster type: %s, exchange to SIMPLE_CLUSTER", xdsClusterType.String())
 	return v2.SIMPLE_CLUSTER
 }
 
@@ -275,7 +285,7 @@ func convertLbPolicy(clusterType envoy_config_cluster_v3.Cluster_DiscoveryType, 
 		return v2.LB_MAGLEV
 	}
 
-	//log.DefaultLogger.Fatalf("unsupported lb policy: %s, exchange to LB_RANDOM", xdsLbPolicy.String())
+	// log.DefaultLogger.Fatalf("unsupported lb policy: %s, exchange to LB_RANDOM", xdsLbPolicy.String())
 	return v2.LB_RANDOM
 }
 

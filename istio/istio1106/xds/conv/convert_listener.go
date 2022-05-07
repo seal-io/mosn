@@ -40,40 +40,16 @@ import (
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/valyala/fasthttp"
 	"mosn.io/api"
+
 	iv2 "mosn.io/mosn/istio/istio1106/config/v2"
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/featuregate"
+	"mosn.io/mosn/pkg/filter/network/acme"
 	"mosn.io/mosn/pkg/filter/stream/sca"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/mtls/extensions/sni"
 	"mosn.io/mosn/pkg/protocol"
 )
-
-// support network filter list
-var supportFilter = map[string]bool{
-	wellknown.HTTPConnectionManager: true,
-	wellknown.TCPProxy:              true,
-	v2.RPC_PROXY:                    true,
-	v2.X_PROXY:                      true,
-}
-
-// todo: more filter type support
-func isSupport(xdsListener *envoy_config_listener_v3.Listener) bool {
-	if xdsListener == nil {
-		return false
-	}
-	if xdsListener.Name == "virtual" || xdsListener.Name == "virtualOutbound" || xdsListener.Name == "virtualInbound" {
-		return true
-	}
-	for _, filterChain := range xdsListener.GetFilterChains() {
-		for _, filter := range filterChain.GetFilters() {
-			if value, ok := supportFilter[filter.GetName()]; !ok || !value {
-				return false
-			}
-		}
-	}
-	return true
-}
 
 // todo add support for rpc_proxy
 var httpBaseConfig = map[string]bool{
@@ -117,6 +93,7 @@ func ConvertListenerConfig(xdsListener *envoy_config_listener_v3.Listener, rh ro
 			AccessLogs:     convertAccessLogs(xdsListener),
 			UseOriginalDst: xdsListener.GetUseOriginalDst().GetValue(),
 			Type:           convertTrafficDirection(xdsListener),
+			Network:        addr.Network(),
 		},
 		Addr:                    addr,
 		PerConnBufferLimitBytes: xdsListener.GetPerConnectionBufferLimitBytes().GetValue(),
@@ -579,31 +556,45 @@ func convertFilterChains(xdsListener *envoy_config_listener_v3.Listener, useOrig
 
 func convertFilters(xdsFilters []*envoy_config_listener_v3.Filter, port uint32, rh routeHandler) (
 	filters []v2.Filter, streamFilters []v2.Filter, name string) {
-	proxy, tcpProxy, connectionManager, err := convertNetworkFilters(xdsFilters, port, rh)
+	l7ProxyConfig, L4ProxyConfig, connectionManager, err := convertNetworkFilters(xdsFilters, port, rh)
 	if err != nil {
 		log.DefaultLogger.Errorf("[convertxds] convertNetworkFilters, failed, %s", err)
 		return
 	}
 	var mainFilter *v2.Filter
-	if tcpProxy != nil {
-		mainFilter = &v2.Filter{
-			Type:   v2.TCP_PROXY,
-			Config: toMap(tcpProxy),
+	if L4ProxyConfig != nil {
+		switch t := L4ProxyConfig.(type) {
+		case *v2.StreamProxy:
+			var proxyType = v2.TCP_PROXY
+			switch t.Type {
+			case "udp":
+				proxyType = v2.UDP_PROXY
+			}
+			mainFilter = &v2.Filter{
+				Type:   proxyType,
+				Config: toMap(L4ProxyConfig),
+			}
+			name = t.Cluster
+		case *acme.ResourceGlobalConfig:
+			mainFilter = &v2.Filter{
+				Type:   v2.NETWORK_ACME,
+				Config: t.Encapsulate(),
+			}
 		}
-		name = tcpProxy.Cluster
+		filters = append(filters, *mainFilter)
 	}
-	if proxy != nil {
+	if l7ProxyConfig != nil {
 		mainFilter = &v2.Filter{
 			Type:   v2.DEFAULT_NETWORK_FILTER,
-			Config: toMap(proxy),
+			Config: toMap(l7ProxyConfig),
 		}
-		name = proxy.RouterConfigName
+		name = l7ProxyConfig.RouterConfigName
+		filters = append(filters, *mainFilter)
 	}
 	if mainFilter == nil {
 		log.DefaultLogger.Warnf("[convertxds] convertFilters get mainFilter empty: %+v", xdsFilters)
 		return
 	}
-	filters = []v2.Filter{*mainFilter}
 	streamFilters = convertStreamFilters(&filterPack{
 		connectionManager: connectionManager,
 		filter:            mainFilter,
@@ -619,15 +610,15 @@ func toMap(in interface{}) map[string]interface{} {
 }
 
 type filterConverter struct {
-	filter   *envoy_config_listener_v3.Filter
-	proxy    *v2.Proxy
-	tcpProxy *v2.StreamProxy
+	filter        *envoy_config_listener_v3.Filter
+	l7ProxyConfig *v2.Proxy
+	l4ProxyConfig interface{}
 }
 
 func (fc *filterConverter) convertHTTP(
 	filter *envoy_config_listener_v3.Filter, oldRC *v2.RouterConfiguration, oldRds bool) (
 	routerConfig *v2.RouterConfiguration, isRds bool, err error) {
-	if fc.proxy != nil {
+	if fc.l7ProxyConfig != nil {
 		routerConfig = oldRC
 		isRds = oldRds
 		return
@@ -643,7 +634,7 @@ func (fc *filterConverter) convertHTTP(
 		} else {
 			config := GetHTTPConnectionManager(filter)
 			routerConfig, isRds = ConvertRouterConf(config.GetRds().GetRouteConfigName(), config.GetRouteConfig())
-			fc.proxy = &v2.Proxy{
+			fc.l7ProxyConfig = &v2.Proxy{
 				DownstreamProtocol: string(protocol.Auto),
 				RouterConfigName:   routerConfig.RouterConfigName,
 				UpstreamProtocol:   string(protocol.Auto),
@@ -655,7 +646,7 @@ func (fc *filterConverter) convertHTTP(
 }
 
 func (fc *filterConverter) convertTCP(filter *envoy_config_listener_v3.Filter) error {
-	if fc.proxy != nil {
+	if fc.l7ProxyConfig != nil {
 		return nil
 	}
 	filterConfig := GetTcpProxy(filter)
@@ -670,7 +661,7 @@ func (fc *filterConverter) convertTCP(filter *envoy_config_listener_v3.Filter) e
 	if err != nil {
 		log.DefaultLogger.Infof("[xds] [convert] Idletimeout is nil: %s", filter.Name)
 	}
-	fc.tcpProxy = &v2.StreamProxy{
+	fc.l4ProxyConfig = &v2.StreamProxy{
 		StatPrefix:         filterConfig.GetStatPrefix(),
 		Cluster:            filterConfig.GetCluster(),
 		IdleTimeout:        &d,
@@ -679,7 +670,39 @@ func (fc *filterConverter) convertTCP(filter *envoy_config_listener_v3.Filter) e
 	return nil
 }
 
-func convertNetworkFilters(filters []*envoy_config_listener_v3.Filter, port uint32, rh routeHandler) (proxy *v2.Proxy, tcpProxy *v2.StreamProxy,
+func (fc *filterConverter) convertUDP(filter *envoy_config_listener_v3.Filter) error {
+	if fc.l7ProxyConfig != nil {
+		return nil
+	}
+	filterConfig := GetUdpProxy(filter)
+	log.DefaultLogger.Tracef("UDPProxy:filter config = %v", filterConfig)
+	d, err := ptypes.Duration(filterConfig.GetIdleTimeout())
+	if err != nil {
+		log.DefaultLogger.Infof("[xds] [convert] Idletimeout is nil: %s", filter.Name)
+	}
+
+	fc.l4ProxyConfig = &v2.StreamProxy{
+		Type:        "udp",
+		StatPrefix:  filterConfig.GetStatPrefix(),
+		Cluster:     filterConfig.GetCluster(),
+		IdleTimeout: &d,
+	}
+	return nil
+}
+
+func (fc *filterConverter) convertACME(filter *envoy_config_listener_v3.Filter) error {
+	if fc.l7ProxyConfig != nil {
+		return nil
+	}
+	filterConfig, err := acme.ConvertAnyToGlobalConfig(filter.GetTypedConfig())
+	if err != nil {
+		return err
+	}
+	fc.l4ProxyConfig = filterConfig
+	return nil
+}
+
+func convertNetworkFilters(filters []*envoy_config_listener_v3.Filter, port uint32, rh routeHandler) (l7ProxyConfig *v2.Proxy, l4ProxyConfig interface{},
 	connectionManager *envoy_config_listener_v3.Filter, err error) {
 	var routerConfig *v2.RouterConfiguration
 	var isRds bool
@@ -694,6 +717,14 @@ func convertNetworkFilters(filters []*envoy_config_listener_v3.Filter, port uint
 			if err = converter.convertTCP(filter); err != nil {
 				return
 			}
+		case "envoy.filters.udp_listener.udp_proxy":
+			if err = converter.convertUDP(filter); err != nil {
+				return
+			}
+		case v2.NETWORK_ACME:
+			if err = converter.convertACME(filter); err != nil {
+				return
+			}
 		case wellknown.RoleBasedAccessControl:
 			// TODO
 			fallthrough
@@ -703,16 +734,16 @@ func convertNetworkFilters(filters []*envoy_config_listener_v3.Filter, port uint
 		}
 	}
 	connectionManager = converter.filter
-	proxy = converter.proxy
-	tcpProxy = converter.tcpProxy
+	l7ProxyConfig = converter.l7ProxyConfig
+	l4ProxyConfig = converter.l4ProxyConfig
 	// get connection manager filter for rds
 	if rh != nil {
 		rh(isRds, routerConfig)
 	}
-	//  get proxy
-	if routerConfig != nil && proxy != nil {
+	//  get l7 proxy
+	if routerConfig != nil && l7ProxyConfig != nil {
 		routerConfigName := routerConfig.RouterConfigName
-		proxy.RouterConfigName = routerConfigName
+		l7ProxyConfig.RouterConfigName = routerConfigName
 	}
 	return
 }

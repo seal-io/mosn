@@ -85,6 +85,7 @@ const (
 	X_PROXY                     = "x_proxy"
 	Transcoder                  = "transcoder"
 	GRPC_NETWORK_FILTER         = "grpc"
+	NETWORK_ACME                = "seal.filters.network.acme"
 )
 
 // Stream Filter's Type

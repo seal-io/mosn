@@ -21,6 +21,7 @@ import "time"
 
 // StreamProxy
 type StreamProxy struct {
+	Type               string         `json:"type,omitempty"`
 	StatPrefix         string         `json:"stat_prefix,omitempty"`
 	Cluster            string         `json:"cluster,omitempty"`
 	IdleTimeout        *time.Duration `json:"idle_timeout,omitempty"`

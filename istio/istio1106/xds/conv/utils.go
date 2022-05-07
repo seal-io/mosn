@@ -25,6 +25,7 @@ import (
 	envoy_extensions_access_loggers_file_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/access_loggers/file/v3"
 	envoy_extensions_filters_network_http_connection_manager_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	envoy_extensions_filters_network_tcp_proxy_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
+	envoy_extensions_filters_udp_udp_proxy_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/udp/udp_proxy/v3"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/duration"
@@ -53,7 +54,16 @@ func GetHTTPConnectionManager(filter *envoy_config_listener_v3.Filter) *envoy_ex
 func GetTcpProxy(filter *envoy_config_listener_v3.Filter) *envoy_extensions_filters_network_tcp_proxy_v3.TcpProxy {
 	cm := &envoy_extensions_filters_network_tcp_proxy_v3.TcpProxy{}
 	if err := getFilterConfig(filter, cm); err != nil {
-		log.DefaultLogger.Errorf("failed to get HTTP connection manager config: %s", err)
+		log.DefaultLogger.Errorf("failed to get TCP proxy config: %s", err)
+		return nil
+	}
+	return cm
+}
+
+func GetUdpProxy(filter *envoy_config_listener_v3.Filter) *envoy_extensions_filters_udp_udp_proxy_v3.UdpProxyConfig {
+	cm := &envoy_extensions_filters_udp_udp_proxy_v3.UdpProxyConfig{}
+	if err := getFilterConfig(filter, cm); err != nil {
+		log.DefaultLogger.Errorf("failed to get UDP proxy config: %s", err)
 		return nil
 	}
 	return cm
