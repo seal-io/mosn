@@ -11,6 +11,7 @@ import (
 
 	"github.com/anchore/syft/syft/source"
 	"mosn.io/api"
+
 	mosnctx "mosn.io/mosn/pkg/context"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/types"
@@ -36,14 +37,8 @@ type mavenEgress struct {
 	route              api.Route
 
 	// fetched
-	packageDescriptor MavenEgressPackageDescriptor
+	packageDescriptor mavenPackageDescriptor
 	packageSBOM       stdjson.RawMessage
-}
-
-type MavenEgressPackageDescriptor struct {
-	MavenIngressPackageDescriptor
-
-	rawData stdjson.RawMessage
 }
 
 func (m *mavenEgress) GetDescriptor(ctx context.Context, reqHeaders api.HeaderMap, reqBuf api.IoBuffer, reqTrailers api.HeaderMap) (bool, error) {
@@ -68,10 +63,8 @@ func (m *mavenEgress) GetDescriptor(ctx context.Context, reqHeaders api.HeaderMa
 	case ".jar", ".war", ".ear", ".par", ".sar", ".jpi", ".hpi", ".lpkg":
 	}
 
-	m.packageDescriptor = MavenEgressPackageDescriptor{
-		MavenIngressPackageDescriptor: MavenIngressPackageDescriptor{
-			Path: reqPath,
-		},
+	m.packageDescriptor = mavenPackageDescriptor{
+		path:    reqPath,
 		rawData: reqBuf.Bytes(),
 	}
 	return true, nil
@@ -81,7 +74,7 @@ func (m *mavenEgress) GetBillOfMaterials(ctx context.Context) error {
 	var sbomBytes []byte
 
 	// otherwise, generate from the downloaded blobs.
-	src, err := source.NewFromFileBuffer(m.packageDescriptor.Path, bytes.NewBuffer(m.packageDescriptor.rawData))
+	src, err := source.NewFromFileBuffer(m.packageDescriptor.path, bytes.NewBuffer(m.packageDescriptor.rawData))
 	if err != nil {
 		return fmt.Errorf("error creating sbom scanning source: %w", err)
 	}

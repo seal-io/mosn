@@ -7,8 +7,9 @@ import (
 
 	"github.com/valyala/fasthttp"
 	"mosn.io/api"
-	"mosn.io/mosn/pkg/protocol"
 	"mosn.io/pkg/protocol/http"
+
+	"mosn.io/mosn/pkg/protocol"
 )
 
 type StreamDualFilter interface {
@@ -40,9 +41,9 @@ func (x *bridge) SetReceiveFilterHandler(handler api.StreamReceiverFilterHandler
 }
 
 func (x *bridge) SendHijackReplyError(err error) {
-	var replyErr HijackReplyError
-	if errors.As(err, &replyErr) {
-		x.SendHijackReplyWithBody(replyErr.StatusCode, replyErr.StatusMessage, replyErr.ContentType, replyErr.Content())
+	var re HijackReplyError
+	if errors.As(err, &re) {
+		x.SendHijackReplyWithBody(re.StatusCode, re.StatusMessage, re.ContentType, re.Content())
 		return
 	}
 	x.SendHijackReplyWithBody(0, "", "", "")
@@ -70,4 +71,26 @@ func (x *bridge) SendHijackReplyWithBody(statusCode int, statusMessage string, c
 	} else {
 		x.receiveHandler.SendHijackReplyWithBody(statusCode, headers, content)
 	}
+}
+
+type HijackReplyError struct {
+	StatusCode    int
+	StatusMessage string
+	ContentType   string
+	CauseError    error
+	CauseContent  string
+}
+
+func (x HijackReplyError) Error() string {
+	if x.CauseError != nil { // show cause error at first
+		return x.CauseError.Error()
+	}
+	return x.CauseContent
+}
+
+func (x HijackReplyError) Content() string {
+	if x.CauseContent != "" { // show cause content at first
+		return x.CauseContent
+	}
+	return x.Error()
 }

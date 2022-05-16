@@ -15,11 +15,12 @@ import (
 	"github.com/vifraa/gopom"
 	"golang.org/x/net/html/charset"
 	"mosn.io/api"
+	"mosn.io/pkg/buffer"
+
 	mosnctx "mosn.io/mosn/pkg/context"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/variable"
-	"mosn.io/pkg/buffer"
 )
 
 const IngressTypeMaven = "maven"
@@ -43,29 +44,8 @@ type mavenIngress struct {
 	checksumAlgorithm  string
 
 	// fetched
-	packageDescriptor MavenIngressPackageDescriptor
+	packageDescriptor mavenPackageDescriptor
 	packageSBOM       stdjson.RawMessage
-}
-
-type MavenIngressPackageDescriptor struct {
-	Path              string `json:"path"`
-	ChecksumAlgorithm string `json:"checksumAlgorithm"`
-	Checksum          string `json:"checksum"`
-	GroupID           string `json:"groupId"`
-	ArtifactID        string `json:"artifactId"`
-	Version           string `json:"version"`
-	Packaging         string `json:"packaging"`
-}
-
-func (s MavenIngressPackageDescriptor) GetName() string {
-	return s.GroupID + "/" + s.ArtifactID + "/" + s.Version
-}
-
-func (s MavenIngressPackageDescriptor) GetID() string {
-	if len(s.Checksum) < 3 {
-		return ""
-	}
-	return "/maven/" + s.ChecksumAlgorithm + "/" + s.Checksum[:2] + "/" + s.Checksum
 }
 
 func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
@@ -144,14 +124,14 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 		return false, errors.New("cannot get checksum")
 	}
 
-	m.packageDescriptor = MavenIngressPackageDescriptor{
-		Path:              path,
-		ChecksumAlgorithm: m.checksumAlgorithm,
-		Checksum:          string(checksum),
-		GroupID:           groupID,
-		ArtifactID:        artifactID,
-		Version:           version,
-		Packaging:         packaging,
+	m.packageDescriptor = mavenPackageDescriptor{
+		checksumAlgorithm: m.checksumAlgorithm,
+		checksum:          string(checksum),
+		path:              path,
+		groupID:           groupID,
+		artifactID:        artifactID,
+		version:           version,
+		packaging:         packaging,
 	}
 	return true, nil
 }
@@ -169,7 +149,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 	}
 	var blobFetchedResult blobFetchedResponse
 	var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
-	var err = variable.SetString(blobCtx, types.VarPath, m.packageDescriptor.Path)
+	var err = variable.SetString(blobCtx, types.VarPath, m.packageDescriptor.path)
 	if err != nil {
 		return fmt.Errorf("error setting blob forward path: %w", err)
 	}
@@ -194,7 +174,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 		return blobFetchingErr
 	}
 
-	src, err := source.NewFromFileBuffer(m.packageDescriptor.Path, bytes.NewBuffer(blobFetchedResult.content))
+	src, err := source.NewFromFileBuffer(m.packageDescriptor.path, bytes.NewBuffer(blobFetchedResult.content))
 	if err != nil {
 		return fmt.Errorf("error creating sbom scanning source: %w", err)
 	}
@@ -221,7 +201,10 @@ func (m *mavenIngress) ValidateBillOfMaterials(ctx context.Context) error {
 
 	var input = map[string]interface{}{
 		"eventType": "package_pull",
-		"sbom":      m.packageSBOM,
+		"checksum":  m.packageDescriptor.getChecksum(),
+	}
+	if len(m.packageSBOM) != 0 {
+		input["sbom"] = m.packageSBOM
 	}
 	for k, v := range m.evaluatorExtraArgs {
 		if _, exist := input[k]; !exist {

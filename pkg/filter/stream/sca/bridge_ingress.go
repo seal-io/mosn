@@ -2,8 +2,10 @@ package sca
 
 import (
 	"context"
+	"errors"
 
 	"mosn.io/api"
+
 	"mosn.io/mosn/pkg/log"
 )
 
@@ -51,11 +53,18 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 	}
 
 	// use the found sample to validate some explicit threats.
-	err = ingress.ValidateDescriptor(ctx)
+	err = ingress.ValidateBillOfMaterials(ctx)
 	if err != nil {
-		log.Proxy.Errorf(ctx, "error validating metadata: %v", err)
-		x.SendHijackReplyError(err)
-		return api.StreamFilterStop
+		if !errors.Is(err, evaluateIncompleteError) {
+			log.Proxy.Errorf(ctx, "error validating metadata: %v", err)
+			x.SendHijackReplyError(err)
+			return api.StreamFilterStop
+		}
+		// there is not cache for this checksum,
+		// so it needs sbom to validate again.
+	} else {
+		log.Proxy.Infof(ctx, "validated")
+		return api.StreamFilterContinue
 	}
 
 	// if there are no explicit threats, then dig out with the sbom,
@@ -75,5 +84,6 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 		return api.StreamFilterStop
 	}
 
+	log.Proxy.Infof(ctx, "validated sbom")
 	return api.StreamFilterContinue
 }

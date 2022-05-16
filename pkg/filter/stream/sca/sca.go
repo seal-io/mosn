@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"mosn.io/api"
+
 	v2 "mosn.io/mosn/pkg/config/v2"
 )
 
@@ -98,6 +99,8 @@ func (x *ResourceConfig) Encapsulate() map[string]interface{} {
 	}
 }
 
+var evaluateIncompleteError = errors.New("incomplete evaluation")
+
 func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap, input map[string]interface{}) error {
 	if x.GetServer() == "" || input == nil {
 		return nil
@@ -131,38 +134,49 @@ func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap,
 		return fmt.Errorf("failed to do http request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+
+	// need more detail to evaluate
+	if resp.StatusCode == stdhttp.StatusPreconditionRequired {
+		return evaluateIncompleteError
+	}
 	respContent, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("failed to read http response body: %w", err)
 	}
-
 	var output = struct {
 		Action    string `json:"action"`
 		Message   string `json:"message"`
 		ReportURL string `json:"reportURL"`
-		Error     string `json:"error"` // internal interface error
+		Code      string `json:"code"`
 	}{}
 	err = json.Unmarshal(respContent, &output)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal http respone body: %w", err)
 	}
-	if output.Action == "block" {
-		var content = "the resource is blocked as: " + output.Message + ", for more information ref to " + output.ReportURL
-		return HijackReplyError{
-			StatusCode:    stdhttp.StatusForbidden,
-			StatusMessage: "Quarantined Item: " + content,
-			ContentType:   "text/plain",
-			CauseContent:  content,
-		}
-	} else if resp.StatusCode != stdhttp.StatusOK {
-		var content = output.Error
+	// unexpected error
+	if resp.StatusCode != stdhttp.StatusOK {
+		var content = output.Message
 		if content == "" {
 			content = string(respContent)
+		}
+		if content == "" {
+			content = output.Code
 		}
 		if content == "" {
 			content = stdhttp.StatusText(resp.StatusCode)
 		}
 		return fmt.Errorf("failed to evaluate as received code %d, body %s", resp.StatusCode, content)
 	}
+	// block
+	if output.Action == "block" {
+		var content = "The resource is blocked. Reason: " + output.Message + ". For more information, please refer to " + output.ReportURL
+		return HijackReplyError{
+			StatusCode:    stdhttp.StatusForbidden,
+			StatusMessage: "Quarantined Item: " + content,
+			ContentType:   "text/plain",
+			CauseContent:  content,
+		}
+	}
+	// allow
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"mosn.io/api"
+
 	"mosn.io/mosn/pkg/log"
 )
 
@@ -64,5 +65,6 @@ func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf
 		return api.StreamFilterStop
 	}
 
+	log.Proxy.Infof(ctx, "validated sbom")
 	return api.StreamFilterContinue
 }

@@ -14,12 +14,13 @@ import (
 	"github.com/anchore/syft/syft/source"
 	"github.com/valyala/fasthttp"
 	"mosn.io/api"
+	"mosn.io/pkg/buffer"
+
 	mosnctx "mosn.io/mosn/pkg/context"
 	"mosn.io/mosn/pkg/protocol"
 	"mosn.io/mosn/pkg/protocol/http"
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/upstream/cluster"
-	"mosn.io/pkg/buffer"
 )
 
 type PortForwardReceiver func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error
@@ -228,18 +229,13 @@ func (p *portForwarder) Start(sender types.StreamSender) {
 }
 
 type IngressPort interface {
-	// GetDescriptor gets the resource descriptor from the given parameters.
+	// GetDescriptor gets the ingress resource descriptor from the given parameters.
 	GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error)
-
-	// ValidateDescriptor validates the ingress resource with its sample, i.e. type, name, version, checksum,
-	// which is faster but less accurate, and return nil if not block explicitly.
-	ValidateDescriptor(ctx context.Context) error
 
 	// GetBillOfMaterials generates from the ingress resource blobs.
 	GetBillOfMaterials(ctx context.Context) error
 
-	// ValidateBillOfMaterials validates the ingress resource with its sbom,
-	// which is slower but more accurate, and return nil if not block.
+	// ValidateBillOfMaterials validates the ingress resource with its sbom.
 	ValidateBillOfMaterials(ctx context.Context) error
 
 	// IngressPort identifies from EgressPort.
@@ -247,14 +243,13 @@ type IngressPort interface {
 }
 
 type EgressPort interface {
-	// GetDescriptor gets the resource descriptor from the given parameters.
-	GetDescriptor(ctx context.Context, reqHeaders api.HeaderMap, reqBuf api.IoBuffer, reqTrailers api.HeaderMap) (bool, error)
+	// GetDescriptor gets the egress resource descriptor from the given parameters.
+	GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error)
 
 	// GetBillOfMaterials generates from the egress resource blobs.
 	GetBillOfMaterials(ctx context.Context) error
 
-	// ValidateBillOfMaterials validates the egress resource with its sbom,
-	// which is slower but more accurate, and return nil if not block.
+	// ValidateBillOfMaterials validates the egress resource with its sbom.
 	ValidateBillOfMaterials(ctx context.Context) error
 
 	// EgressPort identifies from IngressPort.
