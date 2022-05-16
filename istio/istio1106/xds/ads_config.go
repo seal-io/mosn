@@ -38,6 +38,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc/credentials"
+
 	"mosn.io/mosn/istio/istio1106/xds/conv"
 	"mosn.io/mosn/pkg/istio"
 	"mosn.io/mosn/pkg/log"
@@ -47,7 +48,6 @@ type AdsConfig struct {
 	APIType      envoy_config_core_v3.ApiConfigSource_ApiType
 	Services     []*ServiceConfig
 	Clusters     map[string]*ClusterConfig
-	refreshDelay *time.Duration
 	xdsInfo      istio.XdsInfo
 	converter    conv.Converter
 	previousInfo *apiState
@@ -57,15 +57,6 @@ var _ istio.XdsStreamConfig = (*AdsConfig)(nil)
 
 func (ads *AdsConfig) CreateXdsStreamClient() (istio.XdsStreamClient, error) {
 	return NewAdsStreamClient(ads)
-}
-
-const defaultRefreshDelay = time.Second * 10
-
-func (ads *AdsConfig) RefreshDelay() time.Duration {
-	if ads.refreshDelay == nil {
-		return defaultRefreshDelay
-	}
-	return *ads.refreshDelay
 }
 
 // InitAdsRequest creates a cds request
@@ -99,13 +90,6 @@ func (ads *AdsConfig) getAPISourceEndpoint(source *envoy_config_core_v3.ApiConfi
 		return errors.New("only support GRPC api type yet")
 	}
 	ads.APIType = source.ApiType
-	if source.RefreshDelay == nil || source.RefreshDelay.GetSeconds() <= 0 {
-		duration := defaultRefreshDelay
-		ads.refreshDelay = &duration
-	} else {
-		duration := conv.ConvertDuration(source.RefreshDelay)
-		ads.refreshDelay = &duration
-	}
 	ads.Services = make([]*ServiceConfig, 0, len(source.GrpcServices))
 	for _, service := range source.GrpcServices {
 		t := service.TargetSpecifier

@@ -11,10 +11,10 @@ import (
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"google.golang.org/grpc"
-	"mosn.io/mosn/pkg/featuregate"
+	"mosn.io/pkg/utils"
+
 	"mosn.io/mosn/pkg/istio"
 	"mosn.io/mosn/pkg/log"
-	"mosn.io/pkg/utils"
 )
 
 type streamClient struct {
@@ -39,7 +39,6 @@ var _ istio.XdsStreamClient = (*AdsStreamClient)(nil)
 
 func NewAdsStreamClient(c *AdsConfig) (*AdsStreamClient, error) {
 	if len(c.Services) == 0 {
-		log.DefaultLogger.Errorf("no available ads service")
 		return nil, errors.New("no available ads service")
 	}
 	var endpoint string
@@ -55,45 +54,39 @@ func NewAdsStreamClient(c *AdsConfig) (*AdsStreamClient, error) {
 		}
 	}
 	if len(endpoint) == 0 {
-		log.DefaultLogger.Errorf("no available ads endpoint")
 		return nil, errors.New("no available ads endpoint")
 	}
 	endpoint = normalizeUnixSocksPath(endpoint)
 	sc := &streamClient{}
-	if tlsContext == nil || !featuregate.Enabled(featuregate.XdsMtlsEnable) {
+	if tlsContext == nil {
 		conn, err := grpc.Dial(endpoint, grpc.WithInsecure(), generateDialOption())
 		if err != nil {
-			log.DefaultLogger.Errorf("xds client grpc dial error: %v", err)
 			return nil, err
 		}
-		log.DefaultLogger.Infof("mosn estab grpc connection to pilot at %v", endpoint)
 		sc.conn = conn
 	} else {
 		creds, err := c.getTLSCreds(tlsContext)
 		if err != nil {
-			log.DefaultLogger.Errorf("xds-grpc get tls creds fail: err= %v", err)
 			return nil, err
 		}
 		conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds), generateDialOption())
 		if err != nil {
-			log.DefaultLogger.Errorf("xds client grpc dial error: %v", err)
 			return nil, err
 		}
-		log.DefaultLogger.Infof("mosn estab grpc connection to pilot at %v", endpoint)
 		sc.conn = conn
 	}
-	client := envoy_service_discovery_v3.NewAggregatedDiscoveryServiceClient(sc.conn)
 	ctx, cancel := context.WithCancel(context.Background())
 	sc.cancel = cancel
-	streamClient, err := client.StreamAggregatedResources(ctx)
+	client := envoy_service_discovery_v3.NewAggregatedDiscoveryServiceClient(sc.conn)
+	scClient, err := client.StreamAggregatedResources(ctx)
 	if err != nil {
-		log.DefaultLogger.Infof("fail to create stream client: %v", err)
 		if sc.conn != nil {
-			sc.conn.Close()
+			_ = sc.conn.Close()
 		}
 		return nil, err
 	}
-	sc.client = streamClient
+	sc.client = scClient
+	log.DefaultLogger.Infof("mosn estab grpc connection to pilot at %v", endpoint)
 	return &AdsStreamClient{
 		streamClient: sc,
 		config:       c,

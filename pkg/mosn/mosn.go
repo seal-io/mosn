@@ -18,9 +18,12 @@
 package mosn
 
 import (
+	"context"
 	"errors"
 	"net"
 	"time"
+
+	"mosn.io/pkg/utils"
 
 	"mosn.io/mosn/pkg/admin/store"
 	v2 "mosn.io/mosn/pkg/config/v2"
@@ -33,7 +36,6 @@ import (
 	"mosn.io/mosn/pkg/stagemanager"
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/upstream/cluster"
-	"mosn.io/pkg/utils"
 )
 
 // UpgradeData stores datas that are used to smooth upgrade
@@ -187,7 +189,7 @@ func (m *Mosn) initServer() {
 	} else if srvNum > 1 {
 		log.StartLogger.Fatalf("[mosn] [NewMosn] multiple server not supported yet, got %d", srvNum)
 	}
-	//cluster manager filter
+	// cluster manager filter
 	cmf := &clusterManagerFilter{}
 
 	// initialize the routerManager
@@ -195,8 +197,8 @@ func (m *Mosn) initServer() {
 
 	// TODO: Remove Servers, support only one server
 	for _, serverConfig := range c.Servers {
-		//1. server config prepare
-		//server config
+		// 1. server config prepare
+		// server config
 		c := configmanager.ParseServerConfig(&serverConfig)
 
 		// new server config
@@ -211,7 +213,7 @@ func (m *Mosn) initServer() {
 		if mode == v2.Xds {
 			srv = server.NewServer(sc, cmf, m.Clustermanager)
 		} else {
-			//initialize server instance
+			// initialize server instance
 			srv = server.NewServer(sc, cmf, m.Clustermanager)
 
 			for idx, _ := range serverConfig.Listeners {
@@ -290,14 +292,14 @@ func (m *Mosn) TransferConnection() (err error) {
 
 func (m *Mosn) CleanUpgrade() {
 	log.StartLogger.Infof("[mosn start] mosn clean upgrade datas")
-	//close legacy listeners
+	// close legacy listeners
 	for _, ln := range m.Upgrade.InheritListeners {
 		if ln != nil {
 			log.StartLogger.Infof("[mosn] [NewMosn] close useless legacy listener: %s", ln.Addr().String())
 			ln.Close()
 		}
 	}
-	//close legacy UDP listeners
+	// close legacy UDP listeners
 	for _, ln := range m.Upgrade.InheritPacketConn {
 		if ln != nil {
 			log.StartLogger.Infof("[mosn] [NewMosn] close useless legacy listener: %s", ln.LocalAddr().String())
@@ -307,7 +309,7 @@ func (m *Mosn) CleanUpgrade() {
 }
 
 // StartXdsClient returns a ADSClient, support some extensions on it.
-func (m *Mosn) StartXdsClient() *istio.ADSClient {
+func (m *Mosn) StartXdsClient(ctx context.Context) *istio.ADSClient {
 	c := m.Config
 	log.StartLogger.Infof("[mosn start] mosn start xds client")
 	xdsClient, err := istio.NewAdsClient(c)
@@ -315,7 +317,7 @@ func (m *Mosn) StartXdsClient() *istio.ADSClient {
 		log.StartLogger.Errorf("start xds failed: %v", err)
 	} else {
 		utils.GoWithRecover(func() {
-			xdsClient.Start()
+			xdsClient.Start(ctx)
 		}, nil)
 		m.xdsClient = xdsClient
 	}

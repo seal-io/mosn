@@ -18,6 +18,8 @@
 package mosn
 
 import (
+	"context"
+
 	admin "mosn.io/mosn/pkg/admin/server"
 	v2 "mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/featuregate"
@@ -46,7 +48,7 @@ func DefaultPreStartStage(mosn stagemanager.Application) {
 	InitializeMetrics(m)
 
 	// start xds client
-	_ = m.StartXdsClient()
+	_ = m.StartXdsClient(context.Background())
 	featuregate.FinallyInitFunc()
 	m.HandleExtendConfig()
 }

@@ -35,6 +35,9 @@ import (
 
 	"golang.org/x/sys/unix"
 	"mosn.io/api"
+	"mosn.io/pkg/buffer"
+	"mosn.io/pkg/utils"
+
 	admin "mosn.io/mosn/pkg/admin/store"
 	v2 "mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/configmanager"
@@ -47,8 +50,6 @@ import (
 	"mosn.io/mosn/pkg/streamfilter"
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/variable"
-	"mosn.io/pkg/buffer"
-	"mosn.io/pkg/utils"
 )
 
 // ConnectionHandler
@@ -70,7 +71,9 @@ func NewHandler(clusterManagerFilter types.ClusterManagerFilter, clMng types.Clu
 		listeners:      make([]*activeListener, 0),
 	}
 
-	clusterManagerFilter.OnCreated(ch, ch)
+	if clusterManagerFilter != nil {
+		clusterManagerFilter.OnCreated(ch, ch)
+	}
 
 	return ch
 }
@@ -106,7 +109,7 @@ func (ch *connHandler) AddOrUpdateListener(lc *v2.Listener) (types.ListenerEvent
 
 	var listenerName string
 	if lc.Name == "" {
-		listenerName = lc.Addr.String() //utils.GenerateUUID()
+		listenerName = lc.Addr.String() // utils.GenerateUUID()
 		lc.Name = listenerName
 	} else {
 		listenerName = lc.Name
@@ -175,15 +178,15 @@ func (ch *connHandler) AddOrUpdateListener(lc *v2.Listener) (types.ListenerEvent
 
 	} else {
 		// listener doesn't exist, add the listener
-		//TODO: connection level stop-chan usage confirm
+		// TODO: connection level stop-chan usage confirm
 		listenerStopChan := make(chan struct{})
 
-		//initialize access log
+		// initialize access log
 		var als []api.AccessLog
 
 		for _, alConfig := range lc.AccessLogs {
 
-			//use default listener access log path
+			// use default listener access log path
 			if alConfig.Path == "" {
 				alConfig.Path = types.MosnLogBasePath + string(os.PathSeparator) + lc.Name + "_access.log"
 			}
@@ -334,7 +337,7 @@ func (ch *connHandler) ListListenersFile(lctx context.Context) []*os.File {
 		file, err := l.listener.ListenerFile()
 		if err != nil {
 			log.DefaultLogger.Alertf("listener.list", "[server] [conn handler] fail to get listener %s file descriptor: %v", l.listener.Name(), err)
-			return nil //stop reconfigure
+			return nil // stop reconfigure
 		}
 		files = append(files, file)
 	}
@@ -514,7 +517,7 @@ func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemote
 }
 
 func (al *activeListener) OnNewConnection(ctx context.Context, conn api.Connection) {
-	//Register Proxy's Filter
+	// Register Proxy's Filter
 	filterManager := conn.FilterManager()
 	for _, nfcf := range al.networkFiltersFactories {
 		nfcf.CreateFilterChain(ctx, filterManager)

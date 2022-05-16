@@ -18,19 +18,21 @@
 package istio
 
 import (
-	"math/rand"
+	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/utils/clock"
+	"mosn.io/pkg/utils"
+
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
-	"mosn.io/pkg/utils"
 )
 
 type XdsStreamConfig interface {
 	CreateXdsStreamClient() (XdsStreamClient, error)
-	RefreshDelay() time.Duration
-	// InitAdsRequest returns the first request for the ads
 	InitAdsRequest() interface{}
 }
 
@@ -66,104 +68,75 @@ func (adsClient *ADSClient) GetStreamClient() (c XdsStreamClient) {
 	return
 }
 
-func (adsClient *ADSClient) Start() {
+func (adsClient *ADSClient) Start(ctx context.Context) {
 	if adsClient.config == nil {
-		log.StartLogger.Infof("[xds] no xds config parsed, no xds action")
+		log.StartLogger.Infof("[xds] [ads client] no xds config parsed, no xds action")
 		return
 	}
-	_ = adsClient.connect()
-	utils.GoWithRecover(adsClient.sendRequestLoop, nil)
-	utils.GoWithRecover(adsClient.receiveResponseLoop, nil)
-}
-
-func (adsClient *ADSClient) sendRequestLoop() {
-	log.DefaultLogger.Debugf("[xds] [ads client] send request, start with cds")
-	// start a directly timer
-	t := time.NewTimer(0)
-	for {
-		select {
-		case <-adsClient.stopChan:
-			log.DefaultLogger.Infof("[xds] [ads client] send request loop shutdown")
-			adsClient.stopStreamClient()
-			return
-		case <-t.C:
-			c := adsClient.GetStreamClient()
-			if c == nil {
-				log.DefaultLogger.Infof("[xds] [ads client] stream client closed, sleep 1s and wait for reconnect")
-				time.Sleep(time.Second)
-				adsClient.reconnect()
-			} else if err := c.Send(adsClient.config.InitAdsRequest()); err != nil {
-				log.DefaultLogger.Infof("[xds] [ads client] send thread request cds fail!auto retry next period")
-				adsClient.reconnect()
-			}
-			t.Reset(adsClient.config.RefreshDelay())
-		}
+	var err = adsClient.connect(ctx)
+	if err != nil {
+		log.StartLogger.Infof("[xds] [ads client] failed to connect: %v", err)
 	}
+	utils.GoWithRecover(func() { adsClient.receiveResponseLoop(ctx) }, nil)
 }
 
-func (adsClient *ADSClient) receiveResponseLoop() {
-	for {
-		select {
-		case <-adsClient.stopChan:
-			log.DefaultLogger.Infof("[xds] [ads client] receive response loop shutdown")
-			return
-		default:
-			c := adsClient.GetStreamClient()
-			if c == nil {
-				log.DefaultLogger.Infof("[xds] [ads client] try receive response: stream client closed")
-				time.Sleep(time.Second)
-				continue
-			}
-			resp, err := c.Recv()
-			if err != nil {
-				log.DefaultLogger.Infof("[xds] [ads client] get resp error: %v", err)
-				time.Sleep(time.Second)
-				continue
-			}
-			c.HandleResponse(resp)
-		}
+func (adsClient *ADSClient) receiveResponseLoop(ctx context.Context) {
+	var backoff = wait.NewExponentialBackoffManager(
+		1*time.Second,
+		16*time.Second,
+		5*time.Minute,
+		1.5,
+		0.2,
+		&clock.RealClock{},
+	)
+	wait.BackoffUntil(func() {
+		_ = wait.PollImmediateUntilWithContext(ctx, 1*time.Second, adsClient.receiveResponse)
+	}, backoff, true, ctx.Done())
+}
+
+func (adsClient *ADSClient) receiveResponse(ctx context.Context) (bool, error) {
+	select {
+	case <-adsClient.stopChan:
+		log.DefaultLogger.Infof("[xds] [ads client] receive response loop shutdown")
+		return true, nil
+	default:
 	}
-}
 
-var disableReconnect bool
-
-func DisableReconnect() {
-	disableReconnect = true
-}
-
-func EnableReconnect() {
-	disableReconnect = false
-}
-
-const maxRertyInterval = 60 * time.Second
-
-func computeInterval(t time.Duration) time.Duration {
-	t = t * 2
-	if t >= maxRertyInterval {
-		t = maxRertyInterval
+	var cli = adsClient.GetStreamClient()
+	if cli == nil {
+		log.DefaultLogger.Infof("[xds] [ads client] try receive response: stream client closed")
+		_ = adsClient.connect(ctx)
+		return false, errors.New("nil client")
 	}
-	return t
+	var resp, err = cli.Recv()
+	if err != nil {
+		log.DefaultLogger.Infof("[xds] [ads client] get resp error: %v", err)
+		adsClient.reconnect(ctx)
+		return false, err
+	}
+	cli.HandleResponse(resp)
+	return false, nil
 }
 
-func (adsClient *ADSClient) reconnect() {
+func (adsClient *ADSClient) reconnect(ctx context.Context) {
 	adsClient.stopStreamClient()
-	log.DefaultLogger.Infof("[xds] [ads client] close stream client before retry")
-	interval := time.Second
+	log.DefaultLogger.Infof("[xds] [ads client] close stream client, going to reconnect")
 
-	for {
-		if !disableReconnect {
-			err := adsClient.connect()
-			if err == nil {
-				log.DefaultLogger.Infof("[xds] [ads client] stream client reconnected")
-				return
-			}
-			log.DefaultLogger.Infof("[xds] [ads client] stream client reconnect failed %v,  retry after %v", err, interval)
-		}
-		// sleep random
-		time.Sleep(interval + time.Duration(rand.Intn(1000))*time.Millisecond)
-		interval = computeInterval(interval)
+	var backoff = wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   1.5,
+		Jitter:   0.2,
+		Steps:    10,
+		Cap:      16 * time.Second,
 	}
-
+	_ = wait.ExponentialBackoffWithContext(ctx, backoff, func() (bool, error) {
+		var err = adsClient.connect(ctx)
+		if err != nil {
+			log.DefaultLogger.Infof("[xds] [ads client] stream client reconnect failed: %v, going to retry", err)
+			return false, nil
+		}
+		return true, nil
+	})
 }
 
 func (adsClient *ADSClient) stopStreamClient() {
@@ -175,7 +148,7 @@ func (adsClient *ADSClient) stopStreamClient() {
 	adsClient.streamClientMutex.Unlock()
 }
 
-func (adsClient *ADSClient) connect() error {
+func (adsClient *ADSClient) connect(ctx context.Context) error {
 	adsClient.streamClientMutex.Lock()
 	defer adsClient.streamClientMutex.Unlock()
 
@@ -183,6 +156,10 @@ func (adsClient *ADSClient) connect() error {
 		return nil
 	}
 	client, err := adsClient.config.CreateXdsStreamClient()
+	if err != nil {
+		return err
+	}
+	err = client.Send(adsClient.config.InitAdsRequest())
 	if err != nil {
 		return err
 	}
