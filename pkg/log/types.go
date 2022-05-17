@@ -25,7 +25,7 @@ import (
 type CreateErrorLoggerFunc func(output string, level log.Level) (log.ErrorLogger, error)
 
 // The default function to CreateErrorLoggerFunc
-var DefaultCreateErrorLoggerFunc CreateErrorLoggerFunc = CreateDefaultErrorLogger
+var DefaultCreateErrorLoggerFunc CreateErrorLoggerFunc = CreateLogrusDelegatedErrorLogger
 
 // Wrapper of pkg/log
 // Level is an alias of log.Level
