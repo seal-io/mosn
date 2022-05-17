@@ -20,11 +20,15 @@ package proxy
 import (
 	"container/list"
 	"context"
+	"encoding/hex"
 	"runtime"
+	"strings"
 	"sync"
 
 	jsoniter "github.com/json-iterator/go"
 	"mosn.io/api"
+	"mosn.io/pkg/buffer"
+
 	v2 "mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/configmanager"
 	mosnctx "mosn.io/mosn/pkg/context"
@@ -38,7 +42,6 @@ import (
 	"mosn.io/mosn/pkg/types"
 	"mosn.io/mosn/pkg/upstream/cluster"
 	"mosn.io/mosn/pkg/variable"
-	"mosn.io/pkg/buffer"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -183,7 +186,15 @@ func (p *proxy) OnData(buf buffer.IoBuffer) api.FilterStatus {
 			} else {
 				size = buf.Len()
 			}
-			log.DefaultLogger.Alertf("proxy.auto", "[proxy] Protocol Auto error magic :%v", buf.Bytes()[:size])
+			var magic = buf.Bytes()[:size]
+			var sb strings.Builder
+			for i := range magic {
+				sb.WriteString(hex.EncodeToString([]byte{magic[i]}))
+				if i < len(magic)-1 {
+					sb.WriteString(" ")
+				}
+			}
+			log.DefaultLogger.Errorf("[proxy] close as protocol auto error magic: [ %s ]", sb.String())
 			p.readCallbacks.Connection().Close(api.NoFlush, api.OnReadErrClose)
 			return api.Stop
 		}
@@ -199,7 +210,7 @@ func (p *proxy) OnData(buf buffer.IoBuffer) api.FilterStatus {
 	return api.Stop
 }
 
-//rpc realize upstream on event
+// rpc realize upstream on event
 func (p *proxy) onDownstreamEvent(event api.ConnectionEvent) {
 	if event.IsClose() {
 		p.stats.DownstreamConnectionDestroy.Inc(1)
