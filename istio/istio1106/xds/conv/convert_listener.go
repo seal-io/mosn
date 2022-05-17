@@ -629,18 +629,19 @@ func (fc *filterConverter) convertHTTP(
 			log.DefaultLogger.Warnf(
 				"[convertxds] convertFilterChainsAndGetRawFilter, unmarshal http connection manager typed config failed, %s", err)
 			return
-		} else if isHTTPPassthrough(manager) {
-			return
-		} else {
-			config := GetHTTPConnectionManager(filter)
-			routerConfig, isRds = ConvertRouterConf(config.GetRds().GetRouteConfigName(), config.GetRouteConfig())
-			fc.l7ProxyConfig = &v2.Proxy{
-				DownstreamProtocol: string(protocol.Auto),
-				RouterConfigName:   routerConfig.RouterConfigName,
-				UpstreamProtocol:   string(protocol.Auto),
-			}
-			fc.filter = filter
 		}
+		if isHTTPPassthrough(manager) {
+			return
+		}
+		cm := GetHTTPConnectionManager(filter)
+		routerConfig, isRds = ConvertRouterConf(cm.GetRds().GetRouteConfigName(), cm.GetRouteConfig())
+		fc.l7ProxyConfig = &v2.Proxy{
+			RouterConfigName:           routerConfig.RouterConfigName,
+			DownstreamProtocol:         string(protocol.Auto),
+			UpstreamProtocol:           string(protocol.Auto),
+			FallbackForUnknownProtocol: cm.GetCodecType() == envoy_extensions_filters_network_http_connection_manager_v3.HttpConnectionManager_AUTO,
+		}
+		fc.filter = filter
 	}
 	return
 }
