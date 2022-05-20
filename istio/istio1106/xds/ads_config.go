@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"os"
 	"strconv"
 	"time"
 
@@ -178,47 +179,84 @@ func (ads *AdsConfig) loadClusters(staticResources *envoy_config_bootstrap_v3.Bo
 	return nil
 }
 
+func getBytesFromDataSource(source *envoy_config_core_v3.DataSource) (bs []byte, err error) {
+	switch t := source.GetSpecifier().(type) {
+	default:
+		err = errors.New("unknown data source type")
+		return
+	case *envoy_config_core_v3.DataSource_Filename:
+		bs, err = ioutil.ReadFile(t.Filename)
+		if err != nil {
+			return
+		}
+	case *envoy_config_core_v3.DataSource_InlineBytes:
+		bs = t.InlineBytes
+	case *envoy_config_core_v3.DataSource_InlineString:
+		var v = t.InlineString
+		if v != "" {
+			bs = []byte(v)
+		}
+	case *envoy_config_core_v3.DataSource_EnvironmentVariable:
+		var v = os.Getenv(t.EnvironmentVariable)
+		if v != "" {
+			bs = []byte(v)
+		}
+	}
+	if len(bs) == 0 {
+		err = errors.New("empty bytes")
+		return
+	}
+	return
+}
+
 func (ads *AdsConfig) getTLSCreds(tlsContextConfig *envoy_config_core_v3.TransportSocket) (credentials.TransportCredentials, error) {
 	tlsContext := &envoy_extensions_transport_sockets_tls_v3.UpstreamTlsContext{}
 	if err := ptypes.UnmarshalAny(tlsContextConfig.GetTypedConfig(), tlsContext); err != nil {
 		return nil, err
 	}
-	if tlsContext.CommonTlsContext.GetValidationContext() == nil ||
-		tlsContext.CommonTlsContext.GetValidationContext().GetTrustedCa() == nil {
-		return nil, errors.New("can't find trusted ca ")
+	var tlsConfig = tls.Config{
+		InsecureSkipVerify: true,
 	}
-	rootCAPath := tlsContext.CommonTlsContext.GetValidationContext().GetTrustedCa().GetFilename()
-	if len(tlsContext.CommonTlsContext.GetTlsCertificates()) <= 0 {
-		return nil, errors.New("can't find client certificates")
-	}
-	if tlsContext.CommonTlsContext.GetTlsCertificates()[0].GetCertificateChain() == nil ||
-		tlsContext.CommonTlsContext.GetTlsCertificates()[0].GetPrivateKey() == nil {
-		return nil, errors.New("can't read client certificates fail")
-	}
-	certChainPath := tlsContext.CommonTlsContext.GetTlsCertificates()[0].GetCertificateChain().GetFilename()
-	privateKeyPath := tlsContext.CommonTlsContext.GetTlsCertificates()[0].GetPrivateKey().GetFilename()
-	log.DefaultLogger.Infof("mosn start with tls context,root ca certificate path = %v\n cert chain path = %v\n private key path = %v\n",
-		rootCAPath, certChainPath, privateKeyPath)
-	certPool := x509.NewCertPool()
-	bs, err := ioutil.ReadFile(rootCAPath)
-	if err != nil {
-		return nil, err
-	}
-	ok := certPool.AppendCertsFromPEM(bs)
-	if !ok {
-		return nil, errors.New("failed to append certs")
-	}
-	certificate, err := tls.LoadX509KeyPair(
-		certChainPath,
-		privateKeyPath,
-	)
-	creds := credentials.NewTLS(&tls.Config{
-		ServerName:   "",
-		Certificates: []tls.Certificate{certificate},
-		RootCAs:      certPool,
-	})
-	return creds, nil
 
+	if trustedCA := tlsContext.GetCommonTlsContext().GetValidationContext().GetTrustedCa(); trustedCA != nil {
+		var certPool = x509.NewCertPool()
+		var trustedCABytes, err = getBytesFromDataSource(trustedCA)
+		if err != nil {
+			return nil, err
+		}
+		if !certPool.AppendCertsFromPEM(trustedCABytes) {
+			return nil, errors.New("failed to append trusted CA")
+		}
+		tlsConfig.RootCAs = certPool
+	}
+
+	if tlsCerts := tlsContext.GetCommonTlsContext().GetTlsCertificates(); len(tlsCerts) != 0 {
+		var tlsCert = tlsCerts[0]
+		var tlsCertCrtBytes, tlsCertKeyBytes []byte
+		var err error
+		if tlsCertCrt := tlsCert.GetCertificateChain(); tlsCertCrt != nil {
+			tlsCertCrtBytes, err = getBytesFromDataSource(tlsCertCrt)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if tlsCertKey := tlsCert.GetPrivateKey(); tlsCertKey != nil {
+			tlsCertKeyBytes, err = getBytesFromDataSource(tlsCertKey)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(tlsCertCrtBytes) == 0 || len(tlsCertKeyBytes) == 0 {
+			return nil, errors.New("blank client cert or key")
+		}
+		tlsCertX509, err := tls.X509KeyPair(tlsCertCrtBytes, tlsCertKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error construct x509 key pair with given client cert and key: %w", err)
+		}
+		tlsConfig.Certificates = append(tlsConfig.Certificates, tlsCertX509)
+	}
+
+	return credentials.NewTLS(&tlsConfig), nil
 }
 
 const connectionManager = "envoy.filters.network.http_connection_manager"

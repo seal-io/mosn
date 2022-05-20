@@ -11,6 +11,7 @@ import (
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	resource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"mosn.io/pkg/utils"
 
 	"mosn.io/mosn/pkg/istio"
@@ -59,7 +60,7 @@ func NewAdsStreamClient(c *AdsConfig) (*AdsStreamClient, error) {
 	endpoint = normalizeUnixSocksPath(endpoint)
 	sc := &streamClient{}
 	if tlsContext == nil {
-		conn, err := grpc.Dial(endpoint, grpc.WithInsecure(), generateDialOption())
+		conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), generateDialOption())
 		if err != nil {
 			return nil, err
 		}
