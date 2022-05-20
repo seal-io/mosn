@@ -14,7 +14,6 @@ import (
 	"github.com/go-acme/lego/v4/lego"
 	"github.com/go-acme/lego/v4/registration"
 	"go.uber.org/atomic"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"mosn.io/mosn/pkg/log"
 )
@@ -164,8 +163,7 @@ func (x *challenger) getCertificate() *certificate.Resource {
 }
 
 func (x *challenger) runChallenge() {
-	var interval, _ = x.cfg.GetChallengeTimer()
-	var timer = time.NewTimer(interval)
+	var timer = time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	for {
 		select {
@@ -198,30 +196,28 @@ func (x *challenger) runChallenge() {
 func (x *challenger) doChallenge() {
 	x.phase.Store(challengingStart)
 	defer x.phase.Store(challengingStop)
-	_ = wait.PollImmediateUntilWithContext(x.ctx, 5*time.Second, func(ctx context.Context) (done bool, berr error) {
-		var cli, err = x.getClient(x.cfg.GetCertCaDirectory())
-		if err != nil {
-			log.DefaultLogger.Errorf("error getting challenging client: %v", err)
-			return
-		}
-		err = cli.Challenge.SetDNS01Provider(x, x.opts...)
-		if err != nil {
-			log.DefaultLogger.Errorf("error setting DNS-01 challenge provider: %v", err)
-			return
-		}
-		var req = certificate.ObtainRequest{
-			Domains:    x.cfg.GetCertDomains(),
-			PrivateKey: x.certPriKey,
-			Bundle:     false,
-		}
-		cert, err := cli.Certificate.Obtain(req)
-		if err != nil {
-			log.DefaultLogger.Errorf("error obtaining DNS-01 challenge certificate: %v", err)
-			return
-		}
-		x.setCertificate(cert)
-		return true, nil
-	})
+
+	var cli, err = x.getClient(x.cfg.GetCertCaDirectory())
+	if err != nil {
+		log.DefaultLogger.Errorf("error getting challenging client: %v", err)
+		return
+	}
+	err = cli.Challenge.SetDNS01Provider(x, x.opts...)
+	if err != nil {
+		log.DefaultLogger.Errorf("error setting DNS-01 challenge provider: %v", err)
+		return
+	}
+	var req = certificate.ObtainRequest{
+		Domains:    x.cfg.GetCertDomains(),
+		PrivateKey: x.certPriKey,
+		Bundle:     true,
+	}
+	cert, err := cli.Certificate.Obtain(req)
+	if err != nil {
+		log.DefaultLogger.Errorf("error obtaining DNS-01 challenge certificate: %v", err)
+		return
+	}
+	x.setCertificate(cert)
 }
 
 func (x *challenger) closeChallenge() {
