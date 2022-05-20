@@ -137,7 +137,7 @@ func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap,
 				InsecureSkipVerify: true,
 			},
 		},
-		Timeout: 30 * time.Second,
+		Timeout: 90 * time.Second,
 	}
 	resp, err := cli.Do(req)
 	if err != nil {
