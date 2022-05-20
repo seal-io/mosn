@@ -5,10 +5,12 @@ package sca
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	stdhttp "net/http"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -129,7 +131,15 @@ func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap,
 		req.Header.Set("Authorization", "Basic "+x.GetToken())
 	}
 
-	resp, err := stdhttp.DefaultClient.Do(req)
+	var cli = &stdhttp.Client{
+		Transport: &stdhttp.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+		Timeout: 30 * time.Second,
+	}
+	resp, err := cli.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to do http request: %w", err)
 	}
