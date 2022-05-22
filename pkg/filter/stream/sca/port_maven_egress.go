@@ -64,8 +64,8 @@ func (m *mavenEgress) GetDescriptor(ctx context.Context, reqHeaders api.HeaderMa
 	}
 
 	m.packageDescriptor = mavenPackageDescriptor{
-		path:    reqPath,
-		rawData: reqBuf.Bytes(),
+		Path:    reqPath,
+		RawData: reqBuf.Bytes(),
 	}
 	return true, nil
 }
@@ -74,7 +74,7 @@ func (m *mavenEgress) GetBillOfMaterials(ctx context.Context) error {
 	var sbomBytes []byte
 
 	// otherwise, generate from the downloaded blobs.
-	src, err := source.NewFromFileBuffer(m.packageDescriptor.path, bytes.NewBuffer(m.packageDescriptor.rawData))
+	src, err := source.NewFromFileBuffer(m.packageDescriptor.Path, bytes.NewBuffer(m.packageDescriptor.RawData))
 	if err != nil {
 		return fmt.Errorf("error creating sbom scanning source: %w", err)
 	}

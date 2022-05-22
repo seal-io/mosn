@@ -164,30 +164,27 @@ func (p *portForwarder) OnReceive(ctx context.Context, rawRespHeaders api.Header
 	var trailers = rawRespTrailers
 
 	switch headers.StatusCode() {
-	case stdhttp.StatusTemporaryRedirect, stdhttp.StatusPermanentRedirect, stdhttp.StatusMovedPermanently:
+	case stdhttp.StatusMovedPermanently,
+		stdhttp.StatusFound,
+		stdhttp.StatusSeeOther,
+		stdhttp.StatusNotModified,
+		stdhttp.StatusTemporaryRedirect,
+		stdhttp.StatusPermanentRedirect:
 		var location, _ = headers.Get("Location")
 		if location == "" {
 			p.Stop(errors.New("invalid redirect response"))
 			return
 		}
-		var req fasthttp.Request
-		p.headers.Range(func(key, value string) bool {
-			switch key {
-			case "Authorization", "User-Agent":
-				req.Header.Add(key, value)
-			}
-			return true
+		var err = redirect(ctx, location, func(respRedirect *fasthttp.Response) error {
+			headers = http.ResponseHeader{ResponseHeader: &respRedirect.Header}
+			data = buffer.NewIoBufferBytes(respRedirect.Body())
+			trailers = nil
+			return nil
 		})
-		req.SetRequestURI(location)
-		var resp fasthttp.Response
-		var err = fasthttp.Do(&req, &resp)
 		if err != nil {
-			p.Stop(fmt.Errorf("empty blob in %s", location))
+			p.Stop(fmt.Errorf("error redirecting %s: %w", location, err))
 			return
 		}
-		headers = http.ResponseHeader{ResponseHeader: &resp.Header}
-		data = buffer.NewIoBufferBytes(resp.Body())
-		trailers = nil
 	default:
 	}
 	if p.forwardReceive != nil {
@@ -254,4 +251,31 @@ type EgressPort interface {
 
 	// EgressPort identifies from IngressPort.
 	EgressPort()
+}
+
+func redirect(ctx context.Context, location string, cb func(*fasthttp.Response) error) error {
+	if cb == nil {
+		return nil
+	}
+	// NB(thxCode): upstream redirects the response to another place.
+	var reqHeaders, ok = mosnctx.Get(ctx, types.ContextKeyDownStreamHeaders).(api.HeaderMap)
+	if !ok {
+		return errors.New("cannot find downstream headers")
+	}
+	var req fasthttp.Request
+	reqHeaders.Range(func(key, value string) bool {
+		switch key {
+		case "Authorization", "User-Agent":
+			req.Header.Add(key, value)
+		}
+		return true
+	})
+	req.SetRequestURI(location)
+	var resp fasthttp.Response
+	defer resp.Reset()
+	var err = fasthttp.Do(&req, &resp)
+	if err != nil {
+		return fmt.Errorf("failed redirecting to %s: %w", location, err)
+	}
+	return cb(&resp)
 }

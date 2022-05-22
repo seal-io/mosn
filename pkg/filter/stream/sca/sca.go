@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	stdhttp "net/http"
-	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -117,7 +116,7 @@ func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap,
 	if err != nil {
 		return fmt.Errorf("failed to create http request: %w", err)
 	}
-	for _, k := range x.GetInheritHeader() {
+	for _, k := range x.GetRequestInheritHeaders() {
 		var v, exist = headers.Get(k)
 		if !exist {
 			continue
@@ -134,10 +133,10 @@ func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap,
 	var cli = &stdhttp.Client{
 		Transport: &stdhttp.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: x.GetRequestInsecure(),
 			},
 		},
-		Timeout: 90 * time.Second,
+		Timeout: x.GetRequestTimeout().AsDuration(),
 	}
 	resp, err := cli.Do(req)
 	if err != nil {

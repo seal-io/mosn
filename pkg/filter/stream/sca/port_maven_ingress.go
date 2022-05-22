@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/anchore/syft/syft/source"
+	"github.com/valyala/fasthttp"
 	"github.com/vifraa/gopom"
 	"golang.org/x/net/html/charset"
 	"mosn.io/api"
@@ -49,13 +50,6 @@ type mavenIngress struct {
 }
 
 func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
-	// intercept content-type
-	var respContentType, _ = respHeaders.Get("Content-Type")
-	switch respContentType {
-	default:
-		return false, nil
-	case "text/xml", "application/xml":
-	}
 	// intercept method
 	reqMethod, err := variable.GetString(ctx, types.VarMethod)
 	if err != nil {
@@ -69,8 +63,41 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	if err != nil {
 		return false, fmt.Errorf("error getting %s variable: %w", types.VarPath, err)
 	}
-	if filepath.Ext(reqPath) != ".pom" {
-		return false, nil
+	switch filepath.Ext(reqPath) {
+	default:
+	case ".jar":
+		// protect from disabled re-resolve case as much as possible.
+		reqPath = strings.TrimSuffix(reqPath, ".jar") + ".pom"
+		err = cacher.GetObject(reqPath, &m.packageDescriptor)
+		if err != nil {
+			log.Proxy.Warnf(ctx, "error getting package descriptor from cache: %v", err)
+			return false, nil
+		}
+		return true, nil
+	case ".pom":
+		err = cacher.GetObject(reqPath, &m.packageDescriptor)
+		if err == nil {
+			// reduce checksum gain request.
+			return true, nil
+		}
+	}
+	// intercept content-type
+	var respContentType, _ = respHeaders.Get("Content-Type")
+	switch respContentType {
+	default:
+		var respLocation, _ = respHeaders.Get("Location")
+		if respLocation == "" {
+			return false, nil
+		}
+		// upstream redirects the response to another place.
+		err = redirect(ctx, respLocation, func(respRedirect *fasthttp.Response) error {
+			respBuf = buffer.NewIoBufferBytes(respRedirect.Body())
+			return nil
+		})
+		if err != nil {
+			return false, fmt.Errorf("error redirecting %s: %w", respLocation, err)
+		}
+	case "text/xml", "application/xml":
 	}
 
 	// get metadata
@@ -107,7 +134,7 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 			return nil
 		}
 		var contentType, _ = respHeaders.Get("Content-Type")
-		if contentType != "text/plain" {
+		if !strings.HasPrefix(contentType, "text/plain") {
 			return nil
 		}
 		if respData == nil {
@@ -125,19 +152,19 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	}
 
 	m.packageDescriptor = mavenPackageDescriptor{
-		checksumAlgorithm: m.checksumAlgorithm,
-		checksum:          string(checksum),
-		path:              path,
-		groupID:           groupID,
-		artifactID:        artifactID,
-		version:           version,
-		packaging:         packaging,
+		ChecksumAlgorithm: m.checksumAlgorithm,
+		Checksum:          string(checksum),
+		Path:              path,
+		GroupID:           groupID,
+		ArtifactID:        artifactID,
+		Version:           version,
+		Packaging:         packaging,
+	}
+	err = cacher.SetObject(reqPath, m.packageDescriptor)
+	if err != nil {
+		log.Proxy.Warnf(ctx, "error setting package descriptor into cache: %v", err)
 	}
 	return true, nil
-}
-
-func (m *mavenIngress) ValidateDescriptor(ctx context.Context) error {
-	return nil
 }
 
 func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
@@ -149,7 +176,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 	}
 	var blobFetchedResult blobFetchedResponse
 	var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
-	var err = variable.SetString(blobCtx, types.VarPath, m.packageDescriptor.path)
+	var err = variable.SetString(blobCtx, types.VarPath, m.packageDescriptor.Path)
 	if err != nil {
 		return fmt.Errorf("error setting blob forward path: %w", err)
 	}
@@ -160,7 +187,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 		var contentType, _ = respHeaders.Get("Content-Type")
 		switch contentType {
 		default:
-			return fmt.Errorf("invalid blob content type %s", contentType)
+			log.Proxy.Warnf(ctx, "get invalid blob content type %s", contentType)
 		case "application/java-archive", "application/jar":
 		}
 		if respData == nil || respData.Len() == 0 {
@@ -174,7 +201,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 		return blobFetchingErr
 	}
 
-	src, err := source.NewFromFileBuffer(m.packageDescriptor.path, bytes.NewBuffer(blobFetchedResult.content))
+	src, err := source.NewFromFileBuffer(m.packageDescriptor.Path, bytes.NewBuffer(blobFetchedResult.content))
 	if err != nil {
 		return fmt.Errorf("error creating sbom scanning source: %w", err)
 	}
@@ -201,7 +228,7 @@ func (m *mavenIngress) ValidateBillOfMaterials(ctx context.Context) error {
 
 	var input = map[string]interface{}{
 		"eventType": "package_pull",
-		"checksum":  m.packageDescriptor.getChecksum(),
+		"checksum":  m.packageDescriptor.GetChecksum(),
 	}
 	if len(m.packageSBOM) != 0 {
 		input["sbom"] = m.packageSBOM

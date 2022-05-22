@@ -53,13 +53,6 @@ type dockerIngress struct {
 }
 
 func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
-	// intercept content-type
-	var respContentType, _ = respHeaders.Get("Content-Type")
-	switch respContentType {
-	default:
-		return false, nil
-	case string(conregtypes.DockerManifestSchema2), string(conregtypes.OCIManifestSchema1):
-	}
 	// intercept method
 	reqMethod, err := variable.GetString(ctx, types.VarMethod)
 	if err != nil {
@@ -87,6 +80,13 @@ func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.Heade
 		!strings.HasPrefix(reqPaths[len(reqPaths)-1], m.checksumAlgorithm+":") {
 		return false, nil
 	}
+	// intercept content-type
+	var respContentType, _ = respHeaders.Get("Content-Type")
+	switch respContentType {
+	default:
+		return false, nil
+	case string(conregtypes.DockerManifestSchema2), string(conregtypes.OCIManifestSchema1):
+	}
 
 	// get metadata
 	repository, err := variable.GetString(ctx, types.VarIstioHeaderHost)
@@ -99,14 +99,14 @@ func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.Heade
 	var checksum = strings.TrimPrefix(reqPaths[4], m.checksumAlgorithm+":")
 
 	m.packageDescriptor = dockerPackageDescriptor{
-		checksumAlgorithm: m.checksumAlgorithm,
-		checksum:          checksum,
-		path:              reqPath,
-		repository:        repository,
-		namespace:         namespace,
-		name:              name,
-		tag:               tag,
-		rawManifest:       respBuf.Bytes(),
+		ChecksumAlgorithm: m.checksumAlgorithm,
+		Checksum:          checksum,
+		Path:              reqPath,
+		Repository:        repository,
+		Namespace:         namespace,
+		Name:              name,
+		Tag:               tag,
+		RawManifest:       respBuf.Bytes(),
 	}
 	return true, nil
 }
@@ -120,7 +120,7 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 		content   []byte
 		mediaType conregtypes.MediaType
 	}
-	manifest, err := conreg.ParseManifest(bytes.NewBuffer(m.packageDescriptor.rawManifest))
+	manifest, err := conreg.ParseManifest(bytes.NewBuffer(m.packageDescriptor.RawManifest))
 	if err != nil {
 		return dockerResponseErrorWrap(fmt.Errorf("error parsing manifest format: %w", err))
 	}
@@ -128,7 +128,7 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 	var descriptors = append(append(make([]conreg.Descriptor, 0, cap(blobFetchedResults)), manifest.Layers...), manifest.Config)
 	for i := range descriptors {
 		var blobOrder = i
-		var blobURL = strings.Join([]string{"/v2", m.packageDescriptor.namespace, m.packageDescriptor.name, "blobs", descriptors[blobOrder].Digest.String()}, "/")
+		var blobURL = strings.Join([]string{"/v2", m.packageDescriptor.Namespace, m.packageDescriptor.Name, "blobs", descriptors[blobOrder].Digest.String()}, "/")
 		var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
 		var err = variable.SetString(blobCtx, types.VarPath, blobURL)
 		if err != nil {
@@ -140,8 +140,10 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 				return fmt.Errorf("unexpected response status: %d", respCode)
 			}
 			var contentType, _ = respHeaders.Get("Content-Type")
-			if contentType != "application/octet-stream" {
-				return fmt.Errorf("invalid blob content type %s", contentType)
+			switch contentType {
+			default:
+				log.Proxy.Warnf(ctx, "get invalid blob content type %s", contentType)
+			case "application/octet-stream":
 			}
 			if respData == nil || respData.Len() == 0 {
 				return errors.New("empty response body")
@@ -180,7 +182,7 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 	}
 	var img = image.NewImage(rawImage, os.TempDir(),
 		image.WithConfig(blobFetchedResults[len(blobFetchedResults)-1].content),
-		image.WithManifest(m.packageDescriptor.rawManifest))
+		image.WithManifest(m.packageDescriptor.RawManifest))
 	if err = img.Read(); err != nil {
 		return fmt.Errorf("error reading image: %w", err)
 	}

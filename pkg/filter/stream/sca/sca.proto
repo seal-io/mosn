@@ -2,13 +2,16 @@ syntax = "proto3";
 
 package sca;
 
+import "google/protobuf/duration.proto";
+
 option go_package = "mosn.io/mosn/pkg/filter/stream/sca";
 
 message ResourceEvaluator {
   string server = 1;
   string token = 2;
-  string name = 3;
-  repeated string inherit_header = 4;
+  repeated string request_inherit_headers = 11;
+  google.protobuf.Duration request_timeout = 12;
+  bool request_insecure = 13;
 }
 
 message ResourceGlobalConfig {

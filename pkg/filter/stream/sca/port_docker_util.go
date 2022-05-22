@@ -10,43 +10,43 @@ import (
 
 // dockerPackageDescriptor holds the descriptor of a docker image.
 type dockerPackageDescriptor struct {
-	checksumAlgorithm string
-	checksum          string
+	ChecksumAlgorithm string
+	Checksum          string
 
-	path       string
-	repository string
-	namespace  string
-	name       string
-	tag        string
+	Path       string
+	Repository string
+	Namespace  string
+	Name       string
+	Tag        string
 
-	rawManifest stdjson.RawMessage
+	RawManifest stdjson.RawMessage
 }
 
 // getName returns the name of the docker image.
 func (s dockerPackageDescriptor) getName() string {
 	var sb strings.Builder
-	if s.repository != "registry-1.docker.io" && s.repository != "docker.io" {
-		sb.WriteString(s.repository)
+	if s.Repository != "registry-1.docker.io" && s.Repository != "docker.io" {
+		sb.WriteString(s.Repository)
 		sb.WriteString("/")
 	}
-	if s.namespace == "library" && sb.Len() != 0 ||
-		s.namespace != "library" {
-		sb.WriteString(s.namespace)
+	if s.Namespace == "library" && sb.Len() != 0 ||
+		s.Namespace != "library" {
+		sb.WriteString(s.Namespace)
 		sb.WriteString("/")
 	}
-	sb.WriteString(s.name)
+	sb.WriteString(s.Name)
 	sb.WriteString("@")
-	sb.WriteString(s.tag)
+	sb.WriteString(s.Tag)
 	return sb.String()
 }
 
 // getChecksum returns the checksum within type and algorithm,
 // it might be blank if it does not have a checksum.
 func (s dockerPackageDescriptor) getChecksum() string {
-	if len(s.checksum) < 3 {
+	if len(s.Checksum) < 3 {
 		return ""
 	}
-	return "/docker/" + s.checksumAlgorithm + "/" + s.checksum[:2] + "/" + s.checksum
+	return "/docker/" + s.ChecksumAlgorithm + "/" + s.Checksum[:2] + "/" + s.Checksum
 }
 
 // dockerResponseErrorWrap wraps error in docker reply, ref to
