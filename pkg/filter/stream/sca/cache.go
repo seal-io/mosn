@@ -30,7 +30,7 @@ func mustNewBigCache() *bigcache.BigCache {
 }
 
 func newBigCache() (*bigcache.BigCache, error) {
-	// each shard initializes with `(MaxEntriesInWindows / Shards) * MaxEntrySize` = 512 * 600 = 300kb
+	// each shard initializes with `(MaxEntriesInWindows / Shards) * MaxEntrySize` = 600 * 512 = 300kb
 	// each shard limits in `(HardMaxCacheSize * 1024 * 1024) / Shards` = 1024 * 1024 * 1024 / 256 = 4mb
 	// initializes with 256 * 300kb = 75mb, limits with 256 * 4mb = 1gb.
 	var config = bigcache.Config{

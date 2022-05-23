@@ -272,7 +272,7 @@ func redirect(ctx context.Context, location string, cb func(*fasthttp.Response) 
 	})
 	req.SetRequestURI(location)
 	var resp fasthttp.Response
-	defer resp.Reset()
+	defer resp.ResetBody()
 	var err = fasthttp.Do(&req, &resp)
 	if err != nil {
 		return fmt.Errorf("failed redirecting to %s: %w", location, err)

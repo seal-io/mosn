@@ -782,6 +782,7 @@ func convertTLS(transport interface{}) v2.TLSConfig {
 		config.ServerName = upTLSContext.GetSni()
 		// set common for create tls config
 		common = upTLSContext.GetCommonTlsContext()
+		config.InsecureSkip = true
 
 	} else {
 		// is not upstream tls context, try downstream tls context
@@ -814,8 +815,6 @@ func convertTLS(transport interface{}) v2.TLSConfig {
 				SdsConfig: tlsCertSdsConfig[0].GetSdsConfig(),
 			},
 		}
-	} else {
-		log.DefaultLogger.Errorf("unsupported tls certificate types")
 	}
 
 	// ValidationContextType, MOSN support *CommonTlsContext_ValidationContext* and *CommonTlsContext_CombinedValidationContext*

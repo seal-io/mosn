@@ -58,10 +58,9 @@ func CreateFilterChainFactory(config map[string]interface{}) (api.NetworkFilterC
 		for _, listenerName := range affectedListenerNames {
 			var mosnListener = mosnListenerMgr.FindListenerByName("", listenerName).Config()
 			mosnListener.FilterChains[0].TLSContexts = []v2.TLSConfig{{
-				Status:       true,
-				CertChain:    string(certChain),
-				PrivateKey:   string(privateKey),
-				InsecureSkip: true,
+				Status:     true,
+				CertChain:  string(certChain),
+				PrivateKey: string(privateKey),
 			}}
 			var err = mosnListenerMgr.AddOrUpdateListener("", mosnListener)
 			if err != nil {
