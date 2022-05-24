@@ -27,7 +27,7 @@ func CreateFilterChainFactory(config map[string]interface{}) (api.StreamFilterCh
 }
 
 type factory struct {
-	config *ResourceGlobalConfig
+	config *GlobalConfig
 }
 
 func (x factory) CreateFilterChain(ctx context.Context, callbacks api.StreamFilterChainFactoryCallbacks) {

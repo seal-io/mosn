@@ -8,7 +8,7 @@ import (
 	"mosn.io/mosn/pkg/log"
 )
 
-func NewEgressBridge(globalCtx context.Context, globalConfig *ResourceGlobalConfig) StreamDualFilter {
+func NewEgressBridge(globalCtx context.Context, globalConfig *GlobalConfig) StreamDualFilter {
 	return &egressBridge{
 		globalCtx:    globalCtx,
 		globalConfig: globalConfig,
@@ -19,7 +19,7 @@ type egressBridge struct {
 	bridge
 
 	globalCtx    context.Context
-	globalConfig *ResourceGlobalConfig
+	globalConfig *GlobalConfig
 }
 
 func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf api.IoBuffer, trailers api.HeaderMap) api.StreamFilterStatus {

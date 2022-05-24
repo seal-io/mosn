@@ -71,7 +71,6 @@ func (cvt *xdsConverter) ConvertUpdateClusters(clusters []*envoy_config_cluster_
 	}
 	mosnDelClusters := ConvertClustersConfig(dels)
 	for _, cls := range mosnDelClusters {
-		log.DefaultLogger.Debugf("delete cluster: %+v\n", cls)
 		var err error
 		if cls.ClusterType == v2.EDS_CLUSTER {
 			err = clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterDel(cls.Name)

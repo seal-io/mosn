@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
+	jsoniter "github.com/json-iterator/go"
 	"mosn.io/api"
 
 	v2 "mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/server"
 )
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 func init() {
 	api.RegisterNetwork(v2.NETWORK_ACME, CreateFilterChainFactory)
@@ -40,7 +44,7 @@ func CreateFilterChainFactory(config map[string]interface{}) (api.NetworkFilterC
 		}
 		err = chag.register()
 		if err != nil {
-			return nil, fmt.Errorf("failed to register user %s: %v", chag.GetEmail(), err)
+			log.DefaultLogger.Warnf("error registering user %s: %v", chag.GetEmail(), err)
 		}
 		go chag.runChallenge()
 		challengers.Store(cfg.GetAuthEmail(), chag)
@@ -50,24 +54,37 @@ func CreateFilterChainFactory(config map[string]interface{}) (api.NetworkFilterC
 	// it will never start a new challenge round.
 	var affectedListenerNames = cfg.GetAffectedListenerNames()
 	chag.SetCertificateHandler(func(certChain, privateKey []byte) {
+		if len(certChain) == 0 || len(privateKey) == 0 {
+			return
+		}
 		var mosnListenerMgr = server.GetListenerAdapterInstance()
 		if mosnListenerMgr == nil {
 			log.DefaultLogger.Errorf("listener adapter is nil and hasn't been initiated at this time")
 			return
 		}
-		for _, listenerName := range affectedListenerNames {
-			var mosnListener = mosnListenerMgr.FindListenerByName("", listenerName).Config()
-			mosnListener.FilterChains[0].TLSContexts = []v2.TLSConfig{{
-				Status:     true,
-				CertChain:  string(certChain),
-				PrivateKey: string(privateKey),
-			}}
-			var err = mosnListenerMgr.AddOrUpdateListener("", mosnListener)
-			if err != nil {
-				log.DefaultLogger.Errorf("listener adapter failed to update listener %s: %v",
-					listenerName, err)
-				return
+		for {
+		FIND:
+			for _, listenerName := range affectedListenerNames {
+				var mosnListener = mosnListenerMgr.FindListenerByName("", listenerName)
+				if mosnListener == nil {
+					log.DefaultLogger.Warnf("cannot find listener %s, retry", listenerName)
+					time.Sleep(2 * time.Second)
+					break FIND
+				}
+				var mosnListenerConfig = mosnListener.Config()
+				mosnListenerConfig.FilterChains[0].TLSContexts = []v2.TLSConfig{{
+					Status:     true,
+					CertChain:  string(certChain),
+					PrivateKey: string(privateKey),
+				}}
+				var err = mosnListenerMgr.AddOrUpdateListener("", mosnListenerConfig)
+				if err != nil {
+					log.DefaultLogger.Errorf("listener adapter failed to update listener %s: %v",
+						listenerName, err)
+					return
+				}
 			}
+			break
 		}
 	})
 

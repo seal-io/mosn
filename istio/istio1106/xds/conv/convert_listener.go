@@ -575,7 +575,7 @@ func convertFilters(xdsFilters []*envoy_config_listener_v3.Filter, port uint32, 
 				Config: toMap(L4ProxyConfig),
 			}
 			name = t.Cluster
-		case *acme.ResourceGlobalConfig:
+		case *acme.GlobalConfig:
 			mainFilter = &v2.Filter{
 				Type:   v2.NETWORK_ACME,
 				Config: t.Encapsulate(),

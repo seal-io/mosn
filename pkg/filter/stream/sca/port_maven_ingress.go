@@ -26,7 +26,7 @@ import (
 
 const IngressTypeMaven = "maven"
 
-func NewMavenIngress(evaluator *ResourceEvaluator, evaluatorExtraArgs map[string]string, route api.Route) IngressPort {
+func NewMavenIngress(evaluator *Evaluator, evaluatorExtraArgs map[string]string, route api.Route) IngressPort {
 	return &mavenIngress{
 		evaluator:          evaluator,
 		evaluatorExtraArgs: evaluatorExtraArgs,
@@ -39,7 +39,7 @@ type mavenIngress struct {
 	port
 
 	// initialized
-	evaluator          *ResourceEvaluator
+	evaluator          *Evaluator
 	evaluatorExtraArgs map[string]string
 	route              api.Route
 	checksumAlgorithm  string

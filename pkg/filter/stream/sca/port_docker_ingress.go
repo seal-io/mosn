@@ -29,7 +29,7 @@ import (
 
 const IngressTypeDocker = "docker"
 
-func NewDockerIngress(evaluator *ResourceEvaluator, evaluatorExtraArgs map[string]string, route api.Route) IngressPort {
+func NewDockerIngress(evaluator *Evaluator, evaluatorExtraArgs map[string]string, route api.Route) IngressPort {
 	return &dockerIngress{
 		evaluator:          evaluator,
 		evaluatorExtraArgs: evaluatorExtraArgs,
@@ -42,7 +42,7 @@ type dockerIngress struct {
 	port
 
 	// initialized
-	evaluator          *ResourceEvaluator
+	evaluator          *Evaluator
 	evaluatorExtraArgs map[string]string
 	route              api.Route
 	checksumAlgorithm  string

@@ -20,7 +20,7 @@ import (
 
 const EgressTypeMaven = "maven"
 
-func NewMavenEgress(evaluator *ResourceEvaluator, evaluatorExtraArgs map[string]string, route api.Route) EgressPort {
+func NewMavenEgress(evaluator *Evaluator, evaluatorExtraArgs map[string]string, route api.Route) EgressPort {
 	return &mavenEgress{
 		evaluator:          evaluator,
 		evaluatorExtraArgs: evaluatorExtraArgs,
@@ -32,7 +32,7 @@ type mavenEgress struct {
 	port
 
 	// initialized
-	evaluator          *ResourceEvaluator
+	evaluator          *Evaluator
 	evaluatorExtraArgs map[string]string
 	route              api.Route
 

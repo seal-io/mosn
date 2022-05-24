@@ -3,8 +3,11 @@ package acme
 import (
 	"context"
 	"crypto"
+	"errors"
 	"fmt"
-	"reflect"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,14 +22,14 @@ import (
 )
 
 const (
-	challengingStart uint64 = iota + 1
+	challengingStart uint64 = iota
 	challengingPresent
 	challengingCleanUp
 	challengingStop
 	challengingClose
 )
 
-func newChallenger(rctx context.Context, cfg *ResourceGlobalConfig) (*challenger, error) {
+func newChallenger(rctx context.Context, cfg *GlobalConfig) (*challenger, error) {
 	var opts []dns01.ChallengeOption
 	if v := cfg.GetDnsNameservers(); len(v) != 0 {
 		opts = append(opts, dns01.AddRecursiveNameservers(v))
@@ -38,6 +41,10 @@ func newChallenger(rctx context.Context, cfg *ResourceGlobalConfig) (*challenger
 	}
 	if cfg.GetDnsDisableCompletePropagation() {
 		opts = append(opts, dns01.DisableCompletePropagationRequirement())
+	}
+
+	if v := cfg.GetCertDomains(); len(v) == 0 {
+		return nil, errors.New("empty domains is not supported")
 	}
 
 	var err error
@@ -68,7 +75,7 @@ func newChallenger(rctx context.Context, cfg *ResourceGlobalConfig) (*challenger
 		ctx:         ctx,
 		cancel:      cancel,
 		cfg:         cfg,
-		phase:       atomic.NewUint64(0),
+		phase:       atomic.NewUint64(challengingStop),
 		opts:        opts,
 		authSignKey: authSignKey,
 		certPriKey:  certPriKey,
@@ -78,15 +85,18 @@ func newChallenger(rctx context.Context, cfg *ResourceGlobalConfig) (*challenger
 }
 
 type challenger struct {
+	sync.Once
+
 	ctx         context.Context
 	cancel      context.CancelFunc
-	cfg         *ResourceGlobalConfig
+	cfg         *GlobalConfig
 	phase       *atomic.Uint64
 	opts        []dns01.ChallengeOption
 	authSignKey crypto.PrivateKey
 	certPriKey  crypto.PrivateKey
 
 	// user info
+	authLock     sync.Mutex
 	authResource *registration.Resource
 
 	// challenge info
@@ -140,41 +150,64 @@ func (x *challenger) SetCertificateHandler(handle func(certChain, privateKey []b
 	if cert != nil {
 		handle(cert.Certificate, cert.PrivateKey)
 	}
+
 	x.certLock.Lock()
 	x.certHandle = handle
 	x.certLock.Unlock()
 }
 
 func (x *challenger) setCertificate(cert *certificate.Resource) {
-	var certPriKey, _ = certcrypto.ParsePEMPrivateKey(cert.PrivateKey)
 	x.certLock.Lock()
 	x.certResource = cert
-	x.certPriKey = certPriKey
+	if x.cfg.GetCertPrivateKey() == nil {
+		x.certPriKey, _ = certcrypto.ParsePEMPrivateKey(cert.PrivateKey)
+	}
 	if x.certHandle != nil {
 		x.certHandle(cert.Certificate, cert.PrivateKey)
 	}
 	x.certLock.Unlock()
+
+	x.saveCert(cert)
 }
 
 func (x *challenger) getCertificate() *certificate.Resource {
+	x.loadCertOnce()
+
 	x.certLock.RLock()
-	defer x.certLock.RUnlock()
-	return x.certResource
+	var res = x.certResource
+	x.certLock.RUnlock()
+	return res
 }
 
 func (x *challenger) runChallenge() {
-	var timer = time.NewTimer(5 * time.Second)
+	var timer = time.NewTimer(2 * time.Second)
 	defer timer.Stop()
+
+	var cert = x.getCertificate()
+	if cert != nil {
+		var x509Crt, err = certcrypto.ParsePEMCertificate(cert.Certificate)
+		if err != nil {
+			log.DefaultLogger.Errorf("error parsing certificate: %v", err)
+		} else {
+			var deadline = time.Now().Add(7 * 24 * time.Hour)
+			var next = x509Crt.NotAfter.Sub(deadline)
+			if next > 0 {
+				timer.Reset(next)
+				log.DefaultLogger.Infof("next time challenge is %v", deadline.Add(next).Format(time.RFC3339))
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-x.ctx.Done():
 			return
-		default:
+		case <-timer.C:
 		}
 
 		x.doChallenge()
 
-		var cert = x.getCertificate()
+		cert = x.getCertificate()
 		if cert != nil {
 			var x509Crt, err = certcrypto.ParsePEMCertificate(cert.Certificate)
 			if err != nil {
@@ -182,13 +215,17 @@ func (x *challenger) runChallenge() {
 				break
 			}
 			var deadline = time.Now().Add(7 * 24 * time.Hour)
-			timer.Reset(x509Crt.NotAfter.Sub(deadline))
+			var next = x509Crt.NotAfter.Sub(deadline)
+			if next > 0 {
+				timer.Reset(next)
+				log.DefaultLogger.Infof("next time challenge is %v", deadline.Add(next).Format(time.RFC3339))
+			}
 		}
 
 		select {
 		case <-x.ctx.Done():
 			return
-		case <-timer.C:
+		default:
 		}
 	}
 }
@@ -197,7 +234,13 @@ func (x *challenger) doChallenge() {
 	x.phase.Store(challengingStart)
 	defer x.phase.Store(challengingStop)
 
-	var cli, err = x.getClient(x.cfg.GetCertCaDirectory())
+	var err = x.register()
+	if err != nil {
+		log.DefaultLogger.Errorf("error registering user %s: %v", x.GetEmail(), err)
+		return
+	}
+
+	cli, err := x.getClient(x.cfg.GetCertCaDirectory())
 	if err != nil {
 		log.DefaultLogger.Errorf("error getting challenging client: %v", err)
 		return
@@ -225,22 +268,17 @@ func (x *challenger) closeChallenge() {
 	x.cancel()
 }
 
-func (x *challenger) equalConfig(newCfg *ResourceGlobalConfig) bool {
-	var left, right = x.cfg, newCfg
-	// left.GetListenerName() == right.GetListenerName() is excluded.
-	return left.GetAuthEmail() == right.GetAuthEmail() &&
-		reflect.DeepEqual(left.GetAuthSignKey(), right.GetAuthSignKey()) &&
-		reflect.DeepEqual(left.GetCertDomains(), right.GetCertDomains()) &&
-		reflect.DeepEqual(left.GetCertPrivateKey(), right.GetCertPrivateKey()) &&
-		left.GetCertCaDirectory() == right.GetCertCaDirectory() &&
-		left.GetChallengeTimeout().AsDuration() == right.GetChallengeTimeout().AsDuration() &&
-		left.GetChallengeInterval().AsDuration() == right.GetChallengeInterval().AsDuration() &&
-		reflect.DeepEqual(left.GetDnsNameservers(), right.GetDnsNameservers()) &&
-		left.GetDnsTimeout().AsDuration() == right.GetDnsTimeout().AsDuration() &&
-		left.GetDnsDisableCompletePropagation() == right.GetDnsDisableCompletePropagation()
+func (x *challenger) equalConfig(newCfg *GlobalConfig) bool {
+	return x.cfg.Equal(newCfg)
 }
 
 func (x *challenger) register() error {
+	x.authLock.Lock()
+	defer x.authLock.Unlock()
+
+	if x.authResource != nil {
+		return nil
+	}
 	cli, err := x.getClient(x.cfg.GetCertCaDirectory())
 	if err != nil {
 		return fmt.Errorf("error getting challenging client: %v", err)
@@ -261,4 +299,100 @@ func (x *challenger) getClient(certCADirectory string) (*lego.Client, error) {
 		config.CADirURL = certCADirectory
 	}
 	return lego.NewClient(config)
+}
+
+func (x *challenger) saveCert(cert *certificate.Resource) {
+	if s := x.cfg.GetCertStorage().GetPath(); s != nil {
+		var err = saveCertificateToPath(s.GetPath(), x.cfg.GetCertDomains()[0], *cert)
+		if err != nil {
+			log.DefaultLogger.Errorf("error saving certificate: %v", err)
+		}
+	}
+}
+
+func (x *challenger) loadCertOnce() {
+	x.Once.Do(func() {
+		if s := x.cfg.GetCertStorage().GetPath(); s != nil {
+			x.certLock.Lock()
+			var v, err = loadCertificateFromPath(s.GetPath(), x.cfg.GetCertDomains()[0])
+			if err != nil {
+				x.certLock.Unlock()
+				log.DefaultLogger.Errorf("error loading certificate: %v", err)
+				return
+			}
+			x.certResource = &v
+			if x.cfg.GetCertPrivateKey() == nil {
+				x.certPriKey, _ = certcrypto.ParsePEMPrivateKey(v.PrivateKey)
+			}
+			x.certLock.Unlock()
+		}
+	})
+}
+
+func loadCertificateFromPath(path, domain string) (certRes certificate.Resource, err error) {
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	certResBytes, err := readBytes(filepath.Join(path, "proxy", domain, "certificate.res"))
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(certResBytes, &certRes)
+	if err != nil {
+		return
+	}
+
+	certRes.Certificate, err = readBytes(filepath.Join(path, "proxy", domain, "certificate.crt"))
+	if err != nil {
+		return
+	}
+
+	certRes.PrivateKey, err = readBytes(filepath.Join(path, "proxy", domain, "certificate.key"))
+	return
+}
+
+func saveCertificateToPath(path, domain string, certRes certificate.Resource) (err error) {
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return
+	}
+	certResBytes, err := json.Marshal(certRes)
+	if err != nil {
+		return
+	}
+
+	err = writeBytes(filepath.Join(path, "proxy", domain, "certificate.res"), certResBytes)
+	if err != nil {
+		return
+	}
+
+	err = writeBytes(filepath.Join(path, "proxy", domain, "certificate.crt"), certRes.Certificate)
+	if err != nil {
+		return
+	}
+
+	err = writeBytes(filepath.Join(path, "proxy", domain, "certificate.key"), certRes.PrivateKey)
+	return
+}
+
+func readBytes(path string) ([]byte, error) {
+	var bs, err = ioutil.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("error reading file %s: %w", path, err)
+	}
+	return bs, nil
+}
+
+func writeBytes(path string, bs []byte) error {
+	var dir = filepath.Dir(path)
+	var err = os.MkdirAll(dir, 0700)
+	if err != nil {
+		return fmt.Errorf("error creating directory %s: %w", dir, err)
+	}
+	err = ioutil.WriteFile(path, bs, 0600)
+	if err != nil {
+		return fmt.Errorf("error writing file %s: %w", path, err)
+	}
+	return nil
 }

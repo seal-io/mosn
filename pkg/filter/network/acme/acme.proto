@@ -6,16 +6,30 @@ import "google/protobuf/duration.proto";
 
 option go_package = "mosn.io/mosn/pkg/filter/network/acme";
 
-message ResourceGlobalConfig {
+message GlobalConfig {
   repeated string affected_listener_names = 1;
   string auth_email = 2;
   bytes auth_sign_key = 3;
   repeated string cert_domains = 4;
   bytes cert_private_key = 5;
   string cert_ca_directory = 6;
+  CertStorage cert_storage = 7;
   google.protobuf.Duration challenge_timeout = 11;
   google.protobuf.Duration challenge_interval = 12;
   repeated string dns_nameservers = 21;
   google.protobuf.Duration dns_timeout = 22;
   bool dns_disable_complete_propagation = 23;
+}
+
+message CertStorage {
+  oneof storage {
+    CertStoreInMemory memory = 1;
+    CertStoreInPath path = 2;
+  }
+}
+
+message CertStoreInMemory {}
+
+message CertStoreInPath {
+  string path = 1;
 }

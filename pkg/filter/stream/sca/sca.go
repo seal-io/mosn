@@ -18,8 +18,8 @@ import (
 	v2 "mosn.io/mosn/pkg/config/v2"
 )
 
-func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*ResourceGlobalConfig, error) {
-	var c ResourceGlobalConfig
+func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*GlobalConfig, error) {
+	var c GlobalConfig
 	var err = anypb.UnmarshalTo(anyInput, &c, proto.UnmarshalOptions{})
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*ResourceGlobalConfig, error
 	return &c, nil
 }
 
-func ConvertMapToGlobalConfig(m map[string]interface{}) (*ResourceGlobalConfig, error) {
+func ConvertMapToGlobalConfig(m map[string]interface{}) (*GlobalConfig, error) {
 	if m == nil {
 		return nil, errors.New("nil input map")
 	}
@@ -39,15 +39,15 @@ func ConvertMapToGlobalConfig(m map[string]interface{}) (*ResourceGlobalConfig, 
 	if !exit {
 		return nil, errors.New("cannot find '@data' ref")
 	}
-	y, ok := self.(*ResourceGlobalConfig)
+	y, ok := self.(*GlobalConfig)
 	if !ok {
 		return nil, errors.New("unexpected type")
 	}
 	return y, nil
 }
 
-func ConvertAnyToConfig(anyInput *anypb.Any) (*ResourceConfig, error) {
-	var c ResourceConfig
+func ConvertAnyToConfig(anyInput *anypb.Any) (*Config, error) {
+	var c Config
 	var err = anypb.UnmarshalTo(anyInput, &c, proto.UnmarshalOptions{})
 	if err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func ConvertAnyToConfig(anyInput *anypb.Any) (*ResourceConfig, error) {
 	return &c, nil
 }
 
-func ExtractConfigFromRouteConfig(r api.Route) *ResourceConfig {
+func ExtractConfigFromRouteConfig(r api.Route) *Config {
 	if r == nil {
 		return nil
 	}
@@ -71,14 +71,14 @@ func ExtractConfigFromRouteConfig(r api.Route) *ResourceConfig {
 	if !ok {
 		return nil
 	}
-	return v.(*ResourceConfig)
+	return v.(*Config)
 }
 
-func (x *ResourceGlobalConfig) Validate() error {
+func (x *GlobalConfig) Validate() error {
 	return nil
 }
 
-func (x *ResourceGlobalConfig) Encapsulate() map[string]interface{} {
+func (x *GlobalConfig) Encapsulate() map[string]interface{} {
 	if x == nil {
 		return map[string]interface{}{}
 	}
@@ -87,11 +87,11 @@ func (x *ResourceGlobalConfig) Encapsulate() map[string]interface{} {
 	}
 }
 
-func (x *ResourceConfig) Validate() error {
+func (x *Config) Validate() error {
 	return nil
 }
 
-func (x *ResourceConfig) Encapsulate() map[string]interface{} {
+func (x *Config) Encapsulate() map[string]interface{} {
 	if x == nil {
 		return map[string]interface{}{}
 	}
@@ -102,7 +102,7 @@ func (x *ResourceConfig) Encapsulate() map[string]interface{} {
 
 var evaluateIncompleteError = errors.New("incomplete evaluation")
 
-func (x *ResourceEvaluator) Evaluate(ctx context.Context, headers api.HeaderMap, input map[string]interface{}) error {
+func (x *Evaluator) Evaluate(ctx context.Context, headers api.HeaderMap, input map[string]interface{}) error {
 	if x.GetServer() == "" || input == nil {
 		return nil
 	}

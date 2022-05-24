@@ -4,14 +4,15 @@ package acme
 
 import (
 	"errors"
+	"reflect"
 	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*ResourceGlobalConfig, error) {
-	var c ResourceGlobalConfig
+func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*GlobalConfig, error) {
+	var c GlobalConfig
 	var err = anypb.UnmarshalTo(anyInput, &c, proto.UnmarshalOptions{})
 	if err != nil {
 		return nil, err
@@ -19,7 +20,7 @@ func ConvertAnyToGlobalConfig(anyInput *anypb.Any) (*ResourceGlobalConfig, error
 	return &c, nil
 }
 
-func ConvertMapToGlobalConfig(m map[string]interface{}) (*ResourceGlobalConfig, error) {
+func ConvertMapToGlobalConfig(m map[string]interface{}) (*GlobalConfig, error) {
 	if m == nil {
 		return nil, errors.New("nil input map")
 	}
@@ -27,14 +28,14 @@ func ConvertMapToGlobalConfig(m map[string]interface{}) (*ResourceGlobalConfig, 
 	if !exit {
 		return nil, errors.New("cannot find '@data' ref")
 	}
-	y, ok := self.(*ResourceGlobalConfig)
+	y, ok := self.(*GlobalConfig)
 	if !ok {
 		return nil, errors.New("unexpected type")
 	}
 	return y, nil
 }
 
-func (x *ResourceGlobalConfig) Encapsulate() map[string]interface{} {
+func (x *GlobalConfig) Encapsulate() map[string]interface{} {
 	if x == nil {
 		return map[string]interface{}{}
 	}
@@ -48,7 +49,7 @@ const (
 	defaultChallengeInterval = 2 * time.Second
 )
 
-func (x *ResourceGlobalConfig) GetChallengeTimer() (timeout, interval time.Duration) {
+func (x *GlobalConfig) GetChallengeTimer() (timeout, interval time.Duration) {
 	timeout = defaultChallengeTimeout
 	interval = defaultChallengeInterval
 	if v := x.GetChallengeTimeout(); v != nil {
@@ -62,4 +63,18 @@ func (x *ResourceGlobalConfig) GetChallengeTimer() (timeout, interval time.Durat
 		}
 	}
 	return
+}
+
+func (x *GlobalConfig) Equal(y *GlobalConfig) bool {
+	// left.GetListenerName() == y.GetListenerName() is excluded.
+	return x.GetAuthEmail() == y.GetAuthEmail() &&
+		reflect.DeepEqual(x.GetAuthSignKey(), y.GetAuthSignKey()) &&
+		reflect.DeepEqual(x.GetCertDomains(), y.GetCertDomains()) &&
+		reflect.DeepEqual(x.GetCertPrivateKey(), y.GetCertPrivateKey()) &&
+		x.GetCertCaDirectory() == y.GetCertCaDirectory() &&
+		x.GetChallengeTimeout().AsDuration() == y.GetChallengeTimeout().AsDuration() &&
+		x.GetChallengeInterval().AsDuration() == y.GetChallengeInterval().AsDuration() &&
+		reflect.DeepEqual(x.GetDnsNameservers(), y.GetDnsNameservers()) &&
+		x.GetDnsTimeout().AsDuration() == y.GetDnsTimeout().AsDuration() &&
+		x.GetDnsDisableCompletePropagation() == y.GetDnsDisableCompletePropagation()
 }

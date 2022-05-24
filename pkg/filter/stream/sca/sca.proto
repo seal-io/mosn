@@ -6,7 +6,7 @@ import "google/protobuf/duration.proto";
 
 option go_package = "mosn.io/mosn/pkg/filter/stream/sca";
 
-message ResourceEvaluator {
+message Evaluator {
   string server = 1;
   string token = 2;
   repeated string request_inherit_headers = 11;
@@ -14,12 +14,12 @@ message ResourceEvaluator {
   bool request_insecure = 13;
 }
 
-message ResourceGlobalConfig {
-  ResourceEvaluator evaluator = 1;
+message GlobalConfig {
+  Evaluator evaluator = 1;
   bool push_enabled = 2;
 }
 
-message ResourceConfig {
+message Config {
   string type = 1;
   map<string, string> evaluator_extra_args = 2;
 }
