@@ -118,6 +118,8 @@ func (x *challenger) GetPrivateKey() crypto.PrivateKey {
 }
 
 func (x *challenger) GetRegistration() *registration.Resource {
+	x.authLock.Lock()
+	defer x.authLock.Unlock()
 	return x.authResource
 }
 
@@ -180,8 +182,7 @@ func (x *challenger) getCertificate() *certificate.Resource {
 }
 
 func (x *challenger) runChallenge() {
-	var timer = time.NewTimer(2 * time.Second)
-	defer timer.Stop()
+	var d = 2 * time.Second
 
 	var cert = x.getCertificate()
 	if cert != nil {
@@ -192,11 +193,14 @@ func (x *challenger) runChallenge() {
 			var deadline = time.Now().Add(7 * 24 * time.Hour)
 			var next = x509Crt.NotAfter.Sub(deadline)
 			if next > 0 {
-				timer.Reset(next)
 				log.DefaultLogger.Infof("next time challenge is %v", deadline.Add(next).Format(time.RFC3339))
+				d = next
 			}
 		}
 	}
+
+	var timer = time.NewTimer(d)
+	defer timer.Stop()
 
 	for {
 		select {
@@ -205,22 +209,23 @@ func (x *challenger) runChallenge() {
 		case <-timer.C:
 		}
 
-		x.doChallenge()
-
-		cert = x.getCertificate()
-		if cert != nil {
+		var err error
+		d = 2 * time.Second
+		cert, err = x.doChallenge()
+		if err == nil {
 			var x509Crt, err = certcrypto.ParsePEMCertificate(cert.Certificate)
 			if err != nil {
 				log.DefaultLogger.Errorf("error parsing certificate: %v", err)
-				break
+				continue
 			}
 			var deadline = time.Now().Add(7 * 24 * time.Hour)
 			var next = x509Crt.NotAfter.Sub(deadline)
 			if next > 0 {
-				timer.Reset(next)
 				log.DefaultLogger.Infof("next time challenge is %v", deadline.Add(next).Format(time.RFC3339))
+				d = next
 			}
 		}
+		timer.Reset(d)
 
 		select {
 		case <-x.ctx.Done():
@@ -230,25 +235,30 @@ func (x *challenger) runChallenge() {
 	}
 }
 
-func (x *challenger) doChallenge() {
+func (x *challenger) doChallenge() (*certificate.Resource, error) {
 	x.phase.Store(challengingStart)
 	defer x.phase.Store(challengingStop)
 
 	var err = x.register()
 	if err != nil {
+		var cert = x.getCertificate()
+		if cert != nil {
+			// use previous certificate.
+			return cert, nil
+		}
 		log.DefaultLogger.Errorf("error registering user %s: %v", x.GetEmail(), err)
-		return
+		return nil, err
 	}
 
 	cli, err := x.getClient(x.cfg.GetCertCaDirectory())
 	if err != nil {
 		log.DefaultLogger.Errorf("error getting challenging client: %v", err)
-		return
+		return nil, err
 	}
 	err = cli.Challenge.SetDNS01Provider(x, x.opts...)
 	if err != nil {
 		log.DefaultLogger.Errorf("error setting DNS-01 challenge provider: %v", err)
-		return
+		return nil, err
 	}
 	var req = certificate.ObtainRequest{
 		Domains:    x.cfg.GetCertDomains(),
@@ -258,9 +268,10 @@ func (x *challenger) doChallenge() {
 	cert, err := cli.Certificate.Obtain(req)
 	if err != nil {
 		log.DefaultLogger.Errorf("error obtaining DNS-01 challenge certificate: %v", err)
-		return
+		return nil, err
 	}
 	x.setCertificate(cert)
+	return cert, nil
 }
 
 func (x *challenger) closeChallenge() {
