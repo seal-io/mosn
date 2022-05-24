@@ -21,15 +21,19 @@ import (
 	envoy_config_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/golang/protobuf/ptypes"
+
 	"mosn.io/mosn/pkg/log"
 )
 
 func (ads *AdsStreamClient) handleEds(resp *envoy_service_discovery_v3.DiscoveryResponse) error {
 	endpoints := HandleEndpointResponse(resp)
 	if log.DefaultLogger.GetLogLevel() >= log.INFO {
-		log.DefaultLogger.Infof("get %d endpoints from EDS", len(endpoints))
+		log.DefaultLogger.Infof("[xds] get %d endpoints from EDS", len(endpoints))
 	}
-	ads.config.converter.ConvertUpdateEndpoints(endpoints)
+	err := ads.config.converter.ConvertUpdateEndpoints(endpoints)
+	if err != nil {
+		return err
+	}
 	info := &responseInfo{
 		VersionInfo:   resp.VersionInfo,
 		ResponseNonce: resp.Nonce,
@@ -38,9 +42,7 @@ func (ads *AdsStreamClient) handleEds(resp *envoy_service_discovery_v3.Discovery
 	ads.config.previousInfo.Store(EnvoyEndpoint, info)
 
 	ads.AckResponse(resp)
-	// LDS
-	req := CreateLdsRequest(ads.config)
-	return ads.streamClient.Send(req)
+	return nil
 }
 
 func CreateEdsRequest(config *AdsConfig) *envoy_service_discovery_v3.DiscoveryRequest {

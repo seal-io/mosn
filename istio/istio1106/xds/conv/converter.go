@@ -31,11 +31,11 @@ type Converter interface {
 	Stats() *XdsStats
 	AppendRouterName(name string)
 	GetRouterNames() []string
-	ConvertAddOrUpdateRouters(routers []*envoy_config_route_v3.RouteConfiguration)
-	ConvertAddOrUpdateListeners(listeners []*envoy_config_listener_v3.Listener)
-	ConvertDeleteListeners(listeners []*envoy_config_listener_v3.Listener)
-	ConvertUpdateClusters(clusters []*envoy_config_cluster_v3.Cluster)
-	ConvertDeleteClusters(clusters []*envoy_config_cluster_v3.Cluster)
+	ConvertUpdateRouters(routers []*envoy_config_route_v3.RouteConfiguration) error
+	ConvertUpdateListeners(listeners []*envoy_config_listener_v3.Listener) error
+	// ConvertDeleteListeners(listeners []*envoy_config_listener_v3.Listener)
+	ConvertUpdateClusters(clusters []*envoy_config_cluster_v3.Cluster) error
+	// ConvertDeleteClusters(clusters []*envoy_config_cluster_v3.Cluster)
 	ConvertUpdateEndpoints(loadAssignments []*envoy_config_endpoint_v3.ClusterLoadAssignment) error
 }
 

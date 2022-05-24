@@ -20,8 +20,6 @@ package conv
 import (
 	"sync"
 
-	"mosn.io/mosn/pkg/log"
-
 	envoy_admin_v3 "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_config_core_v3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -41,6 +39,8 @@ import (
 	"github.com/golang/protobuf/ptypes/any"
 	_ "istio.io/api/envoy/config/filter/http/alpn/v2alpha1"
 	_ "istio.io/api/envoy/config/filter/http/authn/v2alpha1"
+
+	"mosn.io/mosn/pkg/log"
 )
 
 var _ = &envoy_config_core_v3.Pipe{}
@@ -176,55 +176,54 @@ func envoyConfigDumpRoutes() *any.Any {
 	return result
 }
 
-// EnvoyConfigUpdateClusters update envoy cluster config
-func EnvoyConfigUpdateClusters(clusters []*envoy_config_cluster_v3.Cluster) {
+func EnvoyConfigUpdateClusters(addList, deleteList []*envoy_config_cluster_v3.Cluster) {
 	configLock.Lock()
 	defer configLock.Unlock()
-	log.DefaultLogger.Infof("[config] [envoy config cluster] update")
-	for _, c := range clusters {
+
+	for _, c := range addList {
 		envoyClusters[c.GetName()] = c
+		log.DefaultLogger.Infof("[config] [envoy config cluster] update %s", c.GetName())
+	}
+	for _, c := range deleteList {
+		delete(envoyClusters, c.GetName())
+		log.DefaultLogger.Warnf("[config] [envoy config cluster] delete %s", c.GetName())
 	}
 }
 
-func EnvoyConfigDeleteClusterByName(name string) {
+func EnvoyConfigUpdateRoutes(addList, deleteList []*envoy_config_route_v3.RouteConfiguration) {
 	configLock.Lock()
 	defer configLock.Unlock()
-	delete(envoyClusters, name)
+
+	for _, c := range addList {
+		envoyRoutes[c.GetName()] = c
+		log.DefaultLogger.Infof("[config] [envoy config route] update %s", c.GetName())
+	}
+	for _, c := range deleteList {
+		delete(envoyRoutes, c.GetName())
+		log.DefaultLogger.Warnf("[config] [envoy config route] delete %s", c.GetName())
+	}
 }
 
-// EnvoyConfigUpdateListeners update envoy listener config
-func EnvoyConfigUpdateListeners(listeners []*envoy_config_listener_v3.Listener) {
+func EnvoyConfigUpdateListeners(addList, deleteList []*envoy_config_listener_v3.Listener) {
 	configLock.Lock()
 	defer configLock.Unlock()
-	log.DefaultLogger.Infof("[config] [envoy config listener] update")
-	for _, l := range listeners {
+
+	for _, l := range addList {
 		// listener maybe contains no name, so we use address instead of it.
 		name := l.GetName()
 		if name == "" {
 			name = convertAddress(l.GetAddress()).String()
 		}
 		envoyListeners[name] = l
+		log.DefaultLogger.Infof("[config] [envoy config listener] update %s", name)
 	}
-}
-
-func EnvoyConfigDeleteListeners(listeners []*envoy_config_listener_v3.Listener) {
-	configLock.Lock()
-	defer configLock.Unlock()
-	for _, l := range listeners {
+	for _, l := range deleteList {
+		// listener maybe contains no name, so we use address instead of it.
 		name := l.GetName()
 		if name == "" {
 			name = convertAddress(l.GetAddress()).String()
 		}
 		delete(envoyListeners, name)
-	}
-}
-
-// EnvoyConfigUpdateRoutes update envoy route config
-func EnvoyConfigUpdateRoutes(routes []*envoy_config_route_v3.RouteConfiguration) {
-	configLock.Lock()
-	defer configLock.Unlock()
-	log.DefaultLogger.Infof("[config] [envoy config route] update")
-	for _, r := range routes {
-		envoyRoutes[r.GetName()] = r
+		log.DefaultLogger.Infof("[config] [envoy config listener] delete %s", name)
 	}
 }

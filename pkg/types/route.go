@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"mosn.io/api"
+
 	v2 "mosn.io/mosn/pkg/config/v2"
 )
 
@@ -57,6 +58,8 @@ type Routers interface {
 type RouterManager interface {
 	// AddOrUpdateRouters used to add or update router
 	AddOrUpdateRouters(routerConfig *v2.RouterConfiguration) error
+	// DeleteRouters used to delete router
+	DeleteRouters(routerConfig *v2.RouterConfiguration) error
 	// GetRouterWrapperByName returns a router wrapper from manager
 	GetRouterWrapperByName(routerConfigName string) RouterWrapper
 	// AddRoute adds a single router rule into specified virtualhost(by domain)

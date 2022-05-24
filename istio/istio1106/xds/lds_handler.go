@@ -21,24 +21,28 @@ import (
 	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/golang/protobuf/ptypes"
+
 	"mosn.io/mosn/pkg/log"
 )
 
 func (ads *AdsStreamClient) handleLds(resp *envoy_service_discovery_v3.DiscoveryResponse) error {
 	listeners := HandleListenerResponse(resp)
 	if log.DefaultLogger.GetLogLevel() >= log.INFO {
-		log.DefaultLogger.Infof("get %d listeners from LDS", len(listeners))
+		log.DefaultLogger.Infof("[xds] get %d listeners from LDS", len(listeners))
 	}
-	ads.config.converter.ConvertAddOrUpdateListeners(listeners)
+	err := ads.config.converter.ConvertUpdateListeners(listeners)
+	if err != nil {
+		return err
+	}
 	info := &responseInfo{
 		ResponseNonce: resp.Nonce,
 		VersionInfo:   resp.VersionInfo,
 		ResourceNames: []string{},
 	}
 	ads.config.previousInfo.Store(EnvoyListener, info)
-
 	ads.AckResponse(resp)
 
+	// RDS
 	req := CreateRdsRequest(ads.config)
 	return ads.streamClient.Send(req)
 }

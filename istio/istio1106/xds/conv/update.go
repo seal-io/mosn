@@ -18,6 +18,7 @@
 package conv
 
 import (
+	"errors"
 	"fmt"
 
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -25,6 +26,8 @@ import (
 	envoy_config_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	jsoniter "github.com/json-iterator/go"
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/router"
@@ -34,21 +37,155 @@ import (
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
-// ConvertAddOrUpdateRouters converts router configurationm, used to add or update routers
-func (cvt *xdsConverter) ConvertAddOrUpdateRouters(routers []*envoy_config_route_v3.RouteConfiguration) {
-	if routersMngIns := router.GetRoutersMangerInstance(); routersMngIns == nil {
-		log.DefaultLogger.Errorf("xds OnAddOrUpdateRouters error: router manager in nil")
-	} else {
-		for _, rt := range routers {
-			log.DefaultLogger.Debugf("xds convert router config: %+v", rt)
-
-			mosnRouter, _ := ConvertRouterConf("", rt)
-			if err := routersMngIns.AddOrUpdateRouters(mosnRouter); err != nil {
-				log.DefaultLogger.Errorf("xds client  routersMngIns.AddOrUpdateRouters error: %v", err)
-			}
+func (cvt *xdsConverter) ConvertUpdateClusters(clusters []*envoy_config_cluster_v3.Cluster) error {
+	configLock.Lock()
+	var ins = sets.NewString()
+	var adds = make([]*envoy_config_cluster_v3.Cluster, 0, len(clusters))
+	for i := range clusters {
+		ins.Insert(clusters[i].GetName())
+		adds = append(adds, clusters[i])
+	}
+	var dels = make([]*envoy_config_cluster_v3.Cluster, 0)
+	for i := range envoyClusters {
+		if !ins.Has(envoyClusters[i].GetName()) {
+			dels = append(dels, envoyClusters[i])
 		}
 	}
-	EnvoyConfigUpdateRoutes(routers)
+	configLock.Unlock()
+
+	mosnAddClusters := ConvertClustersConfig(adds)
+	for _, cls := range mosnAddClusters {
+		var err error
+		if cls.ClusterType == v2.EDS_CLUSTER {
+			err = clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterAddOrUpdate(*cls)
+		} else {
+			err = clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterAndHostsAddOrUpdate(*cls, cls.Hosts)
+		}
+		if err != nil {
+			log.DefaultLogger.Errorf("[convertxds] update cluster failed, name: '%s', error: %v", cls.Name, err)
+			cvt.stats.CdsUpdateReject.Inc(1)
+			return err
+		}
+		log.DefaultLogger.Debugf("[convertxds] update cluster succeed, name: '%s'", cls.Name)
+		cvt.stats.CdsUpdateSuccess.Inc(1)
+	}
+	mosnDelClusters := ConvertClustersConfig(dels)
+	for _, cls := range mosnDelClusters {
+		log.DefaultLogger.Debugf("delete cluster: %+v\n", cls)
+		var err error
+		if cls.ClusterType == v2.EDS_CLUSTER {
+			err = clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterDel(cls.Name)
+		}
+		if err != nil {
+			log.DefaultLogger.Errorf("[convertxds] delete cluster failed, name: '%s', error: %v", cls.Name, err)
+			cvt.stats.CdsUpdateReject.Inc(1)
+			continue
+		}
+		log.DefaultLogger.Debugf("[convertxds] delete cluster succeed, name: '%s'", cls.Name)
+		cvt.stats.CdsUpdateSuccess.Inc(1)
+	}
+
+	EnvoyConfigUpdateClusters(adds, dels)
+	return nil
+}
+
+func (cvt *xdsConverter) ConvertUpdateRouters(routers []*envoy_config_route_v3.RouteConfiguration) error {
+	routersMngIns := router.GetRoutersMangerInstance()
+	if routersMngIns == nil {
+		return errors.New("[convertxds] ConvertUpdateRouters router error: router manager in nil")
+	}
+
+	configLock.Lock()
+	var ins = sets.NewString()
+	var adds = make([]*envoy_config_route_v3.RouteConfiguration, 0, len(routers))
+	for i := range routers {
+		ins.Insert(routers[i].GetName())
+		adds = append(adds, routers[i])
+	}
+	var dels = make([]*envoy_config_route_v3.RouteConfiguration, 0)
+	for i := range envoyRoutes {
+		if !ins.Has(envoyRoutes[i].GetName()) {
+			dels = append(dels, envoyRoutes[i])
+		}
+	}
+	configLock.Unlock()
+
+	for _, rt := range adds {
+		mosnAddRouter, _ := ConvertRouterConf("", rt)
+		err := routersMngIns.AddOrUpdateRouters(mosnAddRouter)
+		if err != nil {
+			log.DefaultLogger.Errorf("[convertxds] update route failed, name: '%s', error: %v", rt.Name, err)
+			return err
+		}
+		log.DefaultLogger.Debugf("[convertxds] update route succeed, name: '%s'", rt.Name)
+	}
+	for _, rt := range dels {
+		mosnAddRouter, _ := ConvertRouterConf("", rt)
+		err := routersMngIns.DeleteRouters(mosnAddRouter)
+		if err != nil {
+			log.DefaultLogger.Errorf("[convertxds] delete route failed, name: '%s', error: %v", rt.Name, err)
+			continue
+		}
+		log.DefaultLogger.Debugf("[convertxds] delete route succeed, name: '%s'", rt.Name)
+	}
+
+	EnvoyConfigUpdateRoutes(adds, dels)
+	return nil
+}
+
+func (cvt *xdsConverter) ConvertUpdateListeners(listeners []*envoy_config_listener_v3.Listener) error {
+	listenerAdapter := server.GetListenerAdapterInstance()
+	if listenerAdapter == nil {
+		cvt.stats.LdsUpdateReject.Inc(1)
+		return errors.New("[convertxds] ConvertUpdateListeners error: listener adapter in nil")
+	}
+
+	configLock.Lock()
+	var ins = sets.NewString()
+	var adds = make([]*envoy_config_listener_v3.Listener, 0, len(listeners))
+	for i := range listeners {
+		ins.Insert(listeners[i].GetName())
+		adds = append(adds, listeners[i])
+	}
+	var dels = make([]*envoy_config_listener_v3.Listener, 0)
+	for i := range envoyListeners {
+		if !ins.Has(envoyListeners[i].GetName()) {
+			dels = append(dels, envoyListeners[i])
+		}
+	}
+	configLock.Unlock()
+
+	for _, lis := range adds {
+		mosnListeners := ConvertListenerConfig(lis, cvt.listenerRouterHandler)
+		if len(mosnListeners) == 0 {
+			log.DefaultLogger.Errorf("[convertxds] ConvertUpdateListeners error: empty listeners")
+			cvt.stats.LdsUpdateReject.Inc(1)
+			continue // Maybe next listener is ok
+		}
+		for _, mosnListener := range mosnListeners {
+			err := listenerAdapter.AddOrUpdateListener("", mosnListener)
+			if err != nil {
+				log.DefaultLogger.Errorf("[convertxds] update listener failed, name: '%s', error: %v", mosnListener.Name, err)
+				cvt.stats.LdsUpdateReject.Inc(1)
+				return err
+			}
+			log.DefaultLogger.Debugf("[convertxds] update listener succeed, name: '%s'", mosnListener.Name)
+			cvt.stats.LdsUpdateSuccess.Inc(1)
+		}
+	}
+	for _, lis := range dels {
+		err := listenerAdapter.DeleteListener("", lis.GetName())
+		if err != nil {
+			log.DefaultLogger.Errorf("[convertxds] delete listener failed, name: '%s', error: %v", lis.GetName(), err)
+			cvt.stats.LdsUpdateReject.Inc(1)
+			continue
+		}
+		log.DefaultLogger.Debugf("[convertxds] delete listener succeed, name: '%s'", lis.GetName())
+		cvt.stats.LdsUpdateSuccess.Inc(1)
+	}
+
+	EnvoyConfigUpdateListeners(adds, dels)
+	return nil
 }
 
 type routeHandler func(isRds bool, routerConfig *v2.RouterConfiguration)
@@ -74,112 +211,12 @@ func (cvt *xdsConverter) listenerRouterHandler(isRds bool, routerConfig *v2.Rout
 
 }
 
-// ConvertAddOrUpdateListeners converts listener configuration, used to  add or update listeners
-func (cvt *xdsConverter) ConvertAddOrUpdateListeners(listeners []*envoy_config_listener_v3.Listener) {
-	listenerAdapter := server.GetListenerAdapterInstance()
-	if listenerAdapter == nil {
-		// if listenerAdapter is nil, return directly
-		log.DefaultLogger.Errorf("listenerAdapter is nil and hasn't been initiated at this time")
-		cvt.stats.LdsUpdateReject.Inc(1)
-		return
-	}
-	for _, listener := range listeners {
-		log.DefaultLogger.Debugf("xds convert listener config: %+v", listener)
-		mosnListeners := ConvertListenerConfig(listener, cvt.listenerRouterHandler)
-		if len(mosnListeners) == 0 {
-			log.DefaultLogger.Errorf("xds client ConvertListenerConfig failed")
-			cvt.stats.LdsUpdateReject.Inc(1)
-			continue // Maybe next listener is ok
-		}
-		for _, mosnListener := range mosnListeners {
-			log.DefaultLogger.Debugf("listenerAdapter.AddOrUpdateListener called, with mosn Listener:%+v", mosnListener)
-			if err := listenerAdapter.AddOrUpdateListener("", mosnListener); err == nil {
-				log.DefaultLogger.Debugf("xds AddOrUpdateListener success,listener address = %s", mosnListener.Addr.String())
-				cvt.stats.LdsUpdateSuccess.Inc(1)
-			} else {
-				log.DefaultLogger.Errorf("xds AddOrUpdateListener failure,listener address = %s, msg = %s ",
-					mosnListener.Addr.String(), err.Error())
-				cvt.stats.LdsUpdateReject.Inc(1)
-			}
-		}
-	}
-	EnvoyConfigUpdateListeners(listeners)
-}
-
-// ConvertDeleteListeners converts listener configuration, used to delete listener
-func (cvt *xdsConverter) ConvertDeleteListeners(listeners []*envoy_config_listener_v3.Listener) {
-	listenerAdapter := server.GetListenerAdapterInstance()
-	if listenerAdapter == nil {
-		// if listenerAdapter is nil, return directly
-		log.DefaultLogger.Errorf("listenerAdapter is nil and hasn't been initiated at this time")
-		cvt.stats.LdsUpdateReject.Inc(1)
-		return
-	}
-	for _, listener := range listeners {
-		mosnListeners := ConvertListenerConfig(listener, cvt.listenerRouterHandler)
-		for _, mosnListener := range mosnListeners {
-			if err := listenerAdapter.DeleteListener("", mosnListener.Name); err == nil {
-				log.DefaultLogger.Debugf("xds OnDeleteListeners success,listener address = %s", mosnListener.Addr.String())
-			} else {
-				log.DefaultLogger.Errorf("xds OnDeleteListeners failure,listener address = %s, mag = %s ",
-					mosnListener.Addr.String(), err.Error())
-			}
-		}
-	}
-
-	// cannot delete by mosn listener name
-	// because a envoy_config_listener_v3.Listener maybe convert to multiple mosn listeners
-	// and we record the envoy_config_listener_v3.Listener
-	EnvoyConfigDeleteListeners(listeners)
-
-}
-
-// ConvertUpdateClusters converts cluster configuration, used to udpate cluster
-func (cvt *xdsConverter) ConvertUpdateClusters(clusters []*envoy_config_cluster_v3.Cluster) {
-	mosnClusters := ConvertClustersConfig(clusters)
-	for _, cluster := range mosnClusters {
-		var err error
-		log.DefaultLogger.Debugf("update cluster: %+v\n", cluster)
-		if cluster.ClusterType == v2.EDS_CLUSTER {
-			err = clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterAddOrUpdate(*cluster)
-		} else {
-			err = clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterAndHostsAddOrUpdate(*cluster, cluster.Hosts)
-		}
-		if err != nil {
-			log.DefaultLogger.Errorf("xds OnUpdateClusters failed,cluster name = %s, error: %v", cluster.Name, err.Error())
-			cvt.stats.CdsUpdateReject.Inc(1)
-		} else {
-			log.DefaultLogger.Debugf("xds OnUpdateClusters success,cluster name = %s", cluster.Name)
-			cvt.stats.CdsUpdateSuccess.Inc(1)
-		}
-	}
-	EnvoyConfigUpdateClusters(clusters)
-}
-
-// ConvertDeleteClusters converts cluster configuration, used to delete cluster
-func (cvt *xdsConverter) ConvertDeleteClusters(clusters []*envoy_config_cluster_v3.Cluster) {
-	mosnClusters := ConvertClustersConfig(clusters)
-	for _, cluster := range mosnClusters {
-		log.DefaultLogger.Debugf("delete cluster: %+v\n", cluster)
-		if cluster.ClusterType == v2.EDS_CLUSTER {
-			if err := clusterAdapter.GetClusterMngAdapterInstance().TriggerClusterDel(cluster.Name); err != nil {
-				log.DefaultLogger.Errorf("xds OnDeleteClusters failed,cluster name = %s, error: %v", cluster.Name, err.Error())
-
-			} else {
-				log.DefaultLogger.Debugf("xds OnDeleteClusters success,cluster name = %s", cluster.Name)
-				EnvoyConfigDeleteClusterByName(cluster.Name)
-			}
-		}
-	}
-}
-
 // ConvertUpdateEndpoints converts cluster configuration, used to udpate hosts
 func (cvt *xdsConverter) ConvertUpdateEndpoints(loadAssignments []*envoy_config_endpoint_v3.ClusterLoadAssignment) error {
 	var errGlobal error
 	clusterMngAdapter := clusterAdapter.GetClusterMngAdapterInstance()
 	if clusterMngAdapter == nil {
-		log.DefaultLogger.Errorf("xds client update Error: clusterMngAdapter nil")
-		return fmt.Errorf("xds client update Error: clusterMngAdapter nil")
+		return errors.New("xds ConvertUpdateEndpoints error: cluster mng adapter in nil")
 	}
 
 	for _, loadAssignment := range loadAssignments {

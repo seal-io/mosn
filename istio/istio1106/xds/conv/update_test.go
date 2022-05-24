@@ -34,6 +34,7 @@ import (
 	pstruct "github.com/golang/protobuf/ptypes/struct"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
+
 	"mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/router"
 	"mosn.io/mosn/pkg/server"
@@ -186,14 +187,14 @@ func Test_updateListener(t *testing.T) {
 				ValidateClusters: NewBoolValue(false),
 			},
 		},
-		UseRemoteAddress:                           NewBoolValue(false),
-		XffNumTrustedHops:                          0,
-		SkipXffAppend:                              false,
-		Via:                                        "",
-		GenerateRequestId:                          NewBoolValue(true),
-		ForwardClientCertDetails:                   envoy_extensions_filters_network_http_connection_manager_v3.HttpConnectionManager_SANITIZE,
-		SetCurrentClientCertDetails:                nil,
-		Proxy_100Continue:                          false,
+		UseRemoteAddress:            NewBoolValue(false),
+		XffNumTrustedHops:           0,
+		SkipXffAppend:               false,
+		Via:                         "",
+		GenerateRequestId:           NewBoolValue(true),
+		ForwardClientCertDetails:    envoy_extensions_filters_network_http_connection_manager_v3.HttpConnectionManager_SANITIZE,
+		SetCurrentClientCertDetails: nil,
+		Proxy_100Continue:           false,
 		RepresentIpv4RemoteAddressAsIpv4MappedIpv6: false,
 	}
 	filterName := wellknown.HTTPConnectionManager
@@ -230,7 +231,7 @@ func Test_updateListener(t *testing.T) {
 		},
 		DrainType: envoy_config_listener_v3.Listener_DEFAULT,
 	}
-	cvt.ConvertAddOrUpdateListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
+	cvt.ConvertUpdateListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
 	// Verify
 	adapter := server.GetListenerAdapterInstance()
 	if ln := adapter.FindListenerByName("", "0.0.0.0_80"); ln == nil {
@@ -256,7 +257,7 @@ func Test_updateListener(t *testing.T) {
 			TypedConfig: messageToAny(t, filterConfig),
 		},
 	}
-	cvt.ConvertAddOrUpdateListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
+	cvt.ConvertUpdateListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
 	ln := adapter.FindListenerByName("test_xds_server", "0.0.0.0_80")
 	if ln == nil {
 		t.Fatal("no listener found")
@@ -293,14 +294,12 @@ func Test_updateListener(t *testing.T) {
 		},
 		DrainType: envoy_config_listener_v3.Listener_DEFAULT,
 	}
-	cvt.ConvertAddOrUpdateListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
-
-	cvt.ConvertDeleteListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
+	cvt.ConvertUpdateListeners([]*envoy_config_listener_v3.Listener{listenerConfig})
 
 }
 
 func Test_updateListener_bookinfo(t *testing.T) {
-	//TODO: add it.
+	// TODO: add it.
 }
 
 func Test_updateCluster(t *testing.T) {
@@ -346,7 +345,6 @@ func Test_updateCluster(t *testing.T) {
 	}
 
 	cvt.ConvertUpdateClusters([]*envoy_config_cluster_v3.Cluster{ClusterConfig})
-	cvt.ConvertDeleteClusters([]*envoy_config_cluster_v3.Cluster{ClusterConfig})
 }
 
 func Test_updateCluster_bookinfo(t *testing.T) {
@@ -400,7 +398,7 @@ func Test_ConvertAddOrUpdateRouters(t *testing.T) {
 		},
 		ValidateClusters: NewBoolValue(false),
 	}
-	cvt.ConvertAddOrUpdateRouters([]*envoy_config_route_v3.RouteConfiguration{routeConfig})
+	cvt.ConvertUpdateRouters([]*envoy_config_route_v3.RouteConfiguration{routeConfig})
 	routersMngIns := router.GetRoutersMangerInstance()
 	if routersMngIns == nil {
 		t.Error("get routerMngIns failed!")

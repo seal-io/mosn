@@ -96,6 +96,44 @@ func (rm *routersManagerImpl) AddOrUpdateRouters(routerConfig *v2.RouterConfigur
 	return nil
 }
 
+func (rm *routersManagerImpl) DeleteRouters(routerConfig *v2.RouterConfiguration) error {
+	if routerConfig == nil {
+		log.DefaultLogger.Errorf(RouterLogFormat, "routers_manager", "DeleteRouters", "error: %v", ErrNilRouterConfig)
+		return ErrNilRouterConfig
+	}
+	if v, ok := rm.routersWrapperMap.Load(routerConfig.RouterConfigName); ok {
+		rw, ok := v.(*RoutersWrapper)
+		if !ok {
+			log.DefaultLogger.Errorf(RouterLogFormat, "routers_manager", "DeleteRouters", "unexpected object in routers map")
+			return ErrUnexpected
+		}
+		rw.mux.Lock()
+		defer rw.mux.Unlock()
+		routers := rw.routers
+		// Stored routers should not be nil when called the api
+		if routers == nil {
+			log.DefaultLogger.Errorf(RouterLogFormat, "routers_manager", "DeleteRouters", "error:%v", ErrNoRouters)
+			return ErrNoRouters
+		}
+		cfg := rw.routersConfig
+		for i := range cfg.VirtualHosts {
+			for _, d := range cfg.VirtualHosts[i].Domains {
+				index := routers.RemoveAllRoutes(d)
+				if index == -1 {
+					errMsg := fmt.Sprintf("clear route: %s in domain: %s failed", cfg.RouterConfigName, d)
+					log.DefaultLogger.Errorf(RouterLogFormat, "routers_manager", "DeleteRouters", errMsg)
+				}
+			}
+			// modify config
+			// make a new one to avoid the slice is referenced outside the lock
+			cfg.VirtualHosts[i].Routers = []v2.Router{}
+		}
+		rw.routersConfig = cfg
+		configmanager.SetRouter(*cfg)
+	}
+	return nil
+}
+
 // GetRouterWrapperByName returns a router wrapper from manager
 func (rm *routersManagerImpl) GetRouterWrapperByName(routerConfigName string) types.RouterWrapper {
 	if v, ok := rm.routersWrapperMap.Load(routerConfigName); ok {

@@ -21,15 +21,19 @@ import (
 	envoy_config_route_v3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/golang/protobuf/ptypes"
+
 	"mosn.io/mosn/pkg/log"
 )
 
 func (ads *AdsStreamClient) handleRds(resp *envoy_service_discovery_v3.DiscoveryResponse) error {
 	routes := HandleRouteResponse(resp)
 	if log.DefaultLogger.GetLogLevel() >= log.INFO {
-		log.DefaultLogger.Infof("get %d routes from RDS", len(routes))
+		log.DefaultLogger.Infof("[xds] get %d routes from RDS", len(routes))
 	}
-	ads.config.converter.ConvertAddOrUpdateRouters(routes)
+	err := ads.config.converter.ConvertUpdateRouters(routes)
+	if err != nil {
+		return err
+	}
 	resourceNames := make([]string, 0, len(routes))
 	for _, rt := range routes {
 		resourceNames = append(resourceNames, rt.Name)

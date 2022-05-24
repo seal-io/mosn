@@ -16,7 +16,7 @@ func init() {
 	api.RegisterNetwork(v2.NETWORK_ACME, CreateFilterChainFactory)
 }
 
-var challengers = sync.Map{}
+var challengers sync.Map
 
 func CreateFilterChainFactory(config map[string]interface{}) (api.NetworkFilterChainFactory, error) {
 	var cfg, err = ConvertMapToGlobalConfig(config)

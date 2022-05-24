@@ -138,6 +138,14 @@ func (m *MockRouterManager) AddOrUpdateRouters(routerConfig *v2.RouterConfigurat
 	return ret0
 }
 
+// DeleteRoutes mocks base method.
+func (m *MockRouterManager) DeleteRouters(routerConfig *v2.RouterConfiguration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRouters", routerConfig)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
 // AddOrUpdateRouters indicates an expected call of AddOrUpdateRouters.
 func (mr *MockRouterManagerMockRecorder) AddOrUpdateRouters(routerConfig interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()

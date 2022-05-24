@@ -27,7 +27,7 @@ func TestEnvoyConfigUpdate(t *testing.T) {
 			Name: "cluster2",
 		},
 	}
-	EnvoyConfigUpdateClusters(clusters1)
+	EnvoyConfigUpdateClusters(clusters1, nil)
 	require.Len(t, envoyClusters, 2)
 
 	clusters2 := []*envoy_config_cluster_v3.Cluster{
@@ -35,7 +35,7 @@ func TestEnvoyConfigUpdate(t *testing.T) {
 			Name: "cluster3",
 		},
 	}
-	EnvoyConfigUpdateClusters(clusters2)
+	EnvoyConfigUpdateClusters(clusters2, nil)
 	require.Len(t, envoyClusters, 3)
 
 	listeners1 := []*envoy_config_listener_v3.Listener{
@@ -69,7 +69,7 @@ func TestEnvoyConfigUpdate(t *testing.T) {
 			},
 		},
 	}
-	EnvoyConfigUpdateListeners(listeners1)
+	EnvoyConfigUpdateListeners(listeners1, nil)
 	require.Len(t, envoyListeners, 2)
 
 	listeners2 := []*envoy_config_listener_v3.Listener{
@@ -88,7 +88,7 @@ func TestEnvoyConfigUpdate(t *testing.T) {
 			},
 		},
 	}
-	EnvoyConfigUpdateListeners(listeners2)
+	EnvoyConfigUpdateListeners(listeners2, nil)
 	require.Len(t, envoyListeners, 3)
 
 	routes1 := []*envoy_config_route_v3.RouteConfiguration{
@@ -96,7 +96,7 @@ func TestEnvoyConfigUpdate(t *testing.T) {
 			Name: "route",
 		},
 	}
-	EnvoyConfigUpdateRoutes(routes1)
+	EnvoyConfigUpdateRoutes(routes1, nil)
 	require.Len(t, envoyRoutes, 1)
 
 	routes2 := []*envoy_config_route_v3.RouteConfiguration{
@@ -104,18 +104,6 @@ func TestEnvoyConfigUpdate(t *testing.T) {
 			Name: "route2",
 		},
 	}
-	EnvoyConfigUpdateRoutes(routes2)
+	EnvoyConfigUpdateRoutes(routes2, nil)
 	require.Len(t, envoyRoutes, 2)
-
-	// Delete Config
-	mosnClusters := ConvertClustersConfig(clusters1)
-	for _, c := range mosnClusters {
-		EnvoyConfigDeleteClusterByName(c.Name)
-	}
-	require.Len(t, envoyClusters, 1)
-
-	EnvoyConfigDeleteListeners(listeners1)
-
-	require.Len(t, envoyListeners, 1)
-
 }

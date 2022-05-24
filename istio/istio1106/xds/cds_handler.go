@@ -21,16 +21,20 @@ import (
 	envoy_config_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	"github.com/golang/protobuf/ptypes"
+
 	"mosn.io/mosn/pkg/log"
 )
 
 func (ads *AdsStreamClient) handleCds(resp *envoy_service_discovery_v3.DiscoveryResponse) error {
 	clusters := HandleClusterResponse(resp)
 	if log.DefaultLogger.GetLogLevel() >= log.INFO {
-		log.DefaultLogger.Infof("get %d clusters from CDS", len(clusters))
+		log.DefaultLogger.Infof("[xds] get %d clusters from CDS", len(clusters))
 	}
 	// TODO: handle error, support error detail for ack
-	ads.config.converter.ConvertUpdateClusters(clusters)
+	err := ads.config.converter.ConvertUpdateClusters(clusters)
+	if err != nil {
+		return err
+	}
 	// save response info
 	ads.config.previousInfo.Store(resp.TypeUrl, &responseInfo{
 		ResponseNonce: resp.Nonce,
@@ -44,15 +48,17 @@ func (ads *AdsStreamClient) handleCds(resp *envoy_service_discovery_v3.Discovery
 			clusterNames = append(clusterNames, cluster.Name)
 		}
 	}
-	if len(clusterNames) != 0 { // EDS
+
+	// EDS
+	if len(clusterNames) != 0 {
 		ads.config.previousInfo.SetResourceNames(EnvoyEndpoint, clusterNames)
 		req := CreateEdsRequest(ads.config)
 		return ads.streamClient.Send(req)
 	}
+
 	// LDS
 	req := CreateLdsRequest(ads.config)
 	return ads.streamClient.Send(req)
-
 }
 
 func CreateCdsRequest(config *AdsConfig) *envoy_service_discovery_v3.DiscoveryRequest {

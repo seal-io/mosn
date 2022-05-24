@@ -286,8 +286,8 @@ func (ads *AdsConfig) loadStaticResources(staticResources *envoy_config_bootstra
 	if err != nil {
 		return err
 	}
-	ads.converter.ConvertAddOrUpdateListeners(listeners)
-	ads.converter.ConvertAddOrUpdateRouters(routes)
+	ads.converter.ConvertUpdateListeners(listeners)
+	ads.converter.ConvertUpdateRouters(routes)
 	return nil
 
 }
