@@ -22,8 +22,8 @@ import (
 
 	envoy_config_bootstrap_v3 "github.com/envoyproxy/go-control-plane/envoy/config/bootstrap/v3"
 	"google.golang.org/protobuf/encoding/protojson"
+
 	"mosn.io/mosn/istio/istio1106/xds/conv"
-	"mosn.io/mosn/pkg/admin/server"
 	"mosn.io/mosn/pkg/istio"
 	"mosn.io/mosn/pkg/log"
 )
@@ -39,7 +39,7 @@ func UnmarshalResources(dynamic, static json.RawMessage) (istio.XdsStreamConfig,
 		return nil, err
 	}
 	// register admin api
-	server.RegisterAdminHandleFunc("/stats", ads.statsForIstio)
+	// server.RegisterAdminHandleFunc("/stats", ads.statsForIstio)
 
 	return ads, nil
 }
@@ -63,9 +63,9 @@ func unmarshalResources(dynamic, static json.RawMessage) (*AdsConfig, error) {
 	if err := cfg.loadClusters(staticResources); err != nil {
 		return nil, err
 	}
-	if err := cfg.loadStaticResources(staticResources); err != nil {
-		return nil, err
-	}
+	// if err := cfg.loadStaticResources(staticResources); err != nil {
+	// 	return nil, err
+	// }
 	if err := cfg.loadADSConfig(dynamicResources); err != nil {
 		return nil, err
 	}

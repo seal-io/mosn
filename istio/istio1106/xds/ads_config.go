@@ -279,7 +279,7 @@ func (ads *AdsConfig) loadStaticResources(staticResources *envoy_config_bootstra
 			clusters = append(clusters, c)
 		}
 	}
-	if clusters != nil && len(clusters) > 0 {
+	if len(clusters) > 0 {
 		ads.converter.ConvertUpdateClusters(clusters)
 	}
 	listeners, routes, err := adaptStaticListenersToDynamic(staticResources.Listeners)

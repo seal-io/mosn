@@ -182,11 +182,9 @@ func EnvoyConfigUpdateClusters(addList, deleteList []*envoy_config_cluster_v3.Cl
 
 	for _, c := range addList {
 		envoyClusters[c.GetName()] = c
-		log.DefaultLogger.Infof("[config] [envoy config cluster] update %s", c.GetName())
 	}
 	for _, c := range deleteList {
 		delete(envoyClusters, c.GetName())
-		log.DefaultLogger.Warnf("[config] [envoy config cluster] delete %s", c.GetName())
 	}
 }
 
@@ -196,11 +194,9 @@ func EnvoyConfigUpdateRoutes(addList, deleteList []*envoy_config_route_v3.RouteC
 
 	for _, c := range addList {
 		envoyRoutes[c.GetName()] = c
-		log.DefaultLogger.Infof("[config] [envoy config route] update %s", c.GetName())
 	}
 	for _, c := range deleteList {
 		delete(envoyRoutes, c.GetName())
-		log.DefaultLogger.Warnf("[config] [envoy config route] delete %s", c.GetName())
 	}
 }
 
@@ -215,7 +211,6 @@ func EnvoyConfigUpdateListeners(addList, deleteList []*envoy_config_listener_v3.
 			name = convertAddress(l.GetAddress()).String()
 		}
 		envoyListeners[name] = l
-		log.DefaultLogger.Infof("[config] [envoy config listener] update %s", name)
 	}
 	for _, l := range deleteList {
 		// listener maybe contains no name, so we use address instead of it.
@@ -224,6 +219,5 @@ func EnvoyConfigUpdateListeners(addList, deleteList []*envoy_config_listener_v3.
 			name = convertAddress(l.GetAddress()).String()
 		}
 		delete(envoyListeners, name)
-		log.DefaultLogger.Infof("[config] [envoy config listener] delete %s", name)
 	}
 }

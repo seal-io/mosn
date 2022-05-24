@@ -24,8 +24,8 @@ import (
 
 	envoyControlPlaneAPI "github.com/envoyproxy/go-control-plane/envoy/admin/v3"
 	"github.com/golang/protobuf/jsonpb"
+
 	"mosn.io/mosn/istio/istio1106/xds/conv"
-	"mosn.io/mosn/pkg/admin/server"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/stagemanager"
 	"mosn.io/mosn/pkg/types"
@@ -61,8 +61,8 @@ var (
 )
 
 func init() {
-	server.RegisterAdminHandleFunc("/server_info", serverInfoForIstio)
-	server.RegisterAdminHandleFunc("/config_dump", envoyConfigDump)
+	// server.RegisterAdminHandleFunc("/server_info", serverInfoForIstio)
+	// server.RegisterAdminHandleFunc("/config_dump", envoyConfigDump)
 }
 
 func (ads *AdsConfig) statsForIstio(w http.ResponseWriter, _ *http.Request) {

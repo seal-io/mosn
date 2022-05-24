@@ -173,7 +173,7 @@ func (ch *connHandler) AddOrUpdateListener(lc *v2.Listener) (types.ListenerEvent
 		// set update label to true, do not start the listener again
 		al.updatedLabel = true
 		if log.DefaultLogger.GetLogLevel() >= log.INFO {
-			log.DefaultLogger.Infof("[server] [conn handler] [update listener] update listener: %s", lc.AddrConfig)
+			log.DefaultLogger.Infof("[server] [conn handler] [update listener] update listener: %s", lc.Addr.String())
 		}
 
 	} else {

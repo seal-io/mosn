@@ -80,7 +80,7 @@ func (cvt *xdsConverter) ConvertUpdateClusters(clusters []*envoy_config_cluster_
 			cvt.stats.CdsUpdateReject.Inc(1)
 			continue
 		}
-		log.DefaultLogger.Debugf("[convertxds] delete cluster succeed, name: '%s'", cls.Name)
+		log.DefaultLogger.Warnf("[convertxds] delete cluster succeed, name: '%s'", cls.Name)
 		cvt.stats.CdsUpdateSuccess.Inc(1)
 	}
 
@@ -125,7 +125,7 @@ func (cvt *xdsConverter) ConvertUpdateRouters(routers []*envoy_config_route_v3.R
 			log.DefaultLogger.Errorf("[convertxds] delete route failed, name: '%s', error: %v", rt.Name, err)
 			continue
 		}
-		log.DefaultLogger.Debugf("[convertxds] delete route succeed, name: '%s'", rt.Name)
+		log.DefaultLogger.Warnf("[convertxds] delete route succeed, name: '%s'", rt.Name)
 	}
 
 	EnvoyConfigUpdateRoutes(adds, dels)
@@ -179,7 +179,7 @@ func (cvt *xdsConverter) ConvertUpdateListeners(listeners []*envoy_config_listen
 			cvt.stats.LdsUpdateReject.Inc(1)
 			continue
 		}
-		log.DefaultLogger.Debugf("[convertxds] delete listener succeed, name: '%s'", lis.GetName())
+		log.DefaultLogger.Warnf("[convertxds] delete listener succeed, name: '%s'", lis.GetName())
 		cvt.stats.LdsUpdateSuccess.Inc(1)
 	}
 
@@ -205,7 +205,7 @@ func (cvt *xdsConverter) listenerRouterHandler(isRds bool, routerConfig *v2.Rout
 		return
 	}
 	if err := routersMngIns.AddOrUpdateRouters(routerConfig); err != nil {
-		log.DefaultLogger.Errorf("[xds] [router handler]  AddOrUpdateRouters error: %v", err)
+		log.DefaultLogger.Errorf("[xds] [router handler] AddOrUpdateRouters error: %v", err)
 	}
 
 }
