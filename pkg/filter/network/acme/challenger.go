@@ -96,7 +96,6 @@ type challenger struct {
 	certPriKey  crypto.PrivateKey
 
 	// user info
-	authLock     sync.Mutex
 	authResource *registration.Resource
 
 	// challenge info
@@ -118,8 +117,6 @@ func (x *challenger) GetPrivateKey() crypto.PrivateKey {
 }
 
 func (x *challenger) GetRegistration() *registration.Resource {
-	x.authLock.Lock()
-	defer x.authLock.Unlock()
 	return x.authResource
 }
 
@@ -284,9 +281,6 @@ func (x *challenger) equalConfig(newCfg *GlobalConfig) bool {
 }
 
 func (x *challenger) register() error {
-	x.authLock.Lock()
-	defer x.authLock.Unlock()
-
 	if x.authResource != nil {
 		return nil
 	}
