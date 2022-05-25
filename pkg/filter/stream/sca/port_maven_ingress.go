@@ -120,7 +120,7 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	var groupID, artifactID, version = proj.GroupID, proj.ArtifactID, proj.Version
 
 	// get checksum
-	var checksum []byte
+	var checksum = make([]byte, 0)
 	var checksumCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
 	err = variable.SetString(checksumCtx, types.VarPath, path+"."+m.checksumAlgorithm)
 	if err != nil {
@@ -134,8 +134,10 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 			return nil
 		}
 		var contentType, _ = respHeaders.Get("Content-Type")
-		if !strings.HasPrefix(contentType, "text/plain") {
-			return nil
+		switch contentType {
+		default:
+			log.Proxy.Warnf(ctx, "get invalid checksum content-type %s", contentType)
+		case "application/octet-stream", "text/plain":
 		}
 		if respData == nil {
 			return nil
@@ -145,10 +147,9 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	}
 	var checksumForwardErr = m.Forward(checksumCtx, m.route.RouteRule().ClusterName(ctx), checksumReceiver)
 	if checksumForwardErr != nil {
-		return false, checksumForwardErr
-	}
-	if len(checksum) == 0 {
-		return false, errors.New("cannot get checksum")
+		log.Proxy.Warnf(ctx, "error forwarding to get checksum: %v", checksumForwardErr)
+	} else if len(checksum) == 0 {
+		log.Proxy.Warnf(ctx, "empty checksum")
 	}
 
 	m.packageDescriptor = mavenPackageDescriptor{
@@ -187,7 +188,7 @@ func (m *mavenIngress) GetBillOfMaterials(ctx context.Context) error {
 		var contentType, _ = respHeaders.Get("Content-Type")
 		switch contentType {
 		default:
-			log.Proxy.Warnf(ctx, "get invalid blob content type %s", contentType)
+			log.Proxy.Warnf(ctx, "get invalid blob content-type %s", contentType)
 		case "application/java-archive", "application/jar":
 		}
 		if respData == nil || respData.Len() == 0 {

@@ -40,7 +40,7 @@ func (x *egressBridge) OnReceive(ctx context.Context, headers api.HeaderMap, buf
 	// try to get sample to confirm next step.
 	var found, err = egress.GetDescriptor(ctx, headers, buf, trailers)
 	if err != nil {
-		log.Proxy.Errorf(ctx, "error getting sample: %v", err)
+		log.Proxy.Errorf(ctx, "error getting descriptor: %v", err)
 		x.SendHijackReplyError(err)
 		return api.StreamFilterStop
 	}

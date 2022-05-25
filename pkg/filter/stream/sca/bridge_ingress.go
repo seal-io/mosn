@@ -43,7 +43,7 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 	// try to get sample to confirm next step.
 	var found, err = ingress.GetDescriptor(ctx, headers, buf, trailers)
 	if err != nil {
-		log.Proxy.Errorf(ctx, "error getting sample: %v", err)
+		log.Proxy.Errorf(ctx, "error getting descriptor: %v", err)
 		x.SendHijackReplyError(err)
 		return api.StreamFilterStop
 	}
