@@ -211,17 +211,13 @@ func (m *dockerIngress) ValidateBillOfMaterials(ctx context.Context) error {
 		return dockerResponseErrorWrap(errors.New("cannot find downstream headers"))
 	}
 
-	var input = map[string]interface{}{
-		"eventType": "package_pull",
-		"checksum":  m.packageDescriptor.getChecksum(),
+	var input = &EvaluateInput{
+		EventType: "package_pull",
+		Checksum:  m.packageDescriptor.getChecksum(),
+		ExtraArgs: m.evaluatorExtraArgs,
 	}
 	if len(m.packageSBOM) != 0 {
-		input["sbom"] = m.packageSBOM
-	}
-	for k, v := range m.evaluatorExtraArgs {
-		if _, exist := input[k]; !exist {
-			input[k] = v
-		}
+		input.SBOM = m.packageSBOM
 	}
 
 	var err = m.evaluator.Evaluate(ctx, headers, input)

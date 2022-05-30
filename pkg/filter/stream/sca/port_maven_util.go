@@ -18,14 +18,14 @@ type mavenPackageDescriptor struct {
 	RawData stdjson.RawMessage
 }
 
-// GetName returns the name of the maven archive.
-func (s mavenPackageDescriptor) GetName() string {
+// getName returns the name of the maven archive.
+func (s mavenPackageDescriptor) getName() string {
 	return s.GroupID + "/" + s.ArtifactID + ":" + s.Version
 }
 
-// GetChecksum returns the checksum within type and algorithm,
+// getChecksum returns the checksum within type and algorithm,
 // it might be blank if it does not have a checksum.
-func (s mavenPackageDescriptor) GetChecksum() string {
+func (s mavenPackageDescriptor) getChecksum() string {
 	if len(s.Checksum) < 3 {
 		return ""
 	}

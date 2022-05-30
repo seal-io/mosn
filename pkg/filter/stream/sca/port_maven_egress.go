@@ -98,14 +98,10 @@ func (m *mavenEgress) ValidateBillOfMaterials(ctx context.Context) error {
 		return errors.New("cannot find downstream headers")
 	}
 
-	var input = map[string]interface{}{
-		"eventType": "package_push",
-		"sbom":      m.packageSBOM,
-	}
-	for k, v := range m.evaluatorExtraArgs {
-		if _, exist := input[k]; !exist {
-			input[k] = v
-		}
+	var input = &EvaluateInput{
+		EventType: "package_push",
+		ExtraArgs: m.evaluatorExtraArgs,
+		SBOM:      m.packageSBOM,
 	}
 	return m.evaluator.Evaluate(ctx, headers, input)
 }

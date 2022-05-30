@@ -65,7 +65,7 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	}
 	switch filepath.Ext(reqPath) {
 	default:
-	case ".jar":
+	case ".jar", ".war", ".ear", ".rar":
 		// protect from disabled re-resolve case as much as possible.
 		reqPath = strings.TrimSuffix(reqPath, ".jar") + ".pom"
 		err = cacher.GetObject(reqPath, &m.packageDescriptor)
@@ -108,13 +108,20 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 		return false, fmt.Errorf("error decoding project pom: %w", err)
 	}
 	var packaging = func() string {
-		if proj.Packaging == "" {
+		// NB(thxCode): packaging reference, https://maven.apache.org/ref/3.8.5/maven-core/artifact-handlers.html.
+		var rawPackaging = strings.ToLower(proj.Packaging)
+		switch rawPackaging {
+		case "maven-plugin", "test-jar", "ejb", "ejb-client", "":
 			return "jar"
+		default:
+			return rawPackaging
 		}
-		return strings.ToLower(proj.Packaging)
 	}()
-	if packaging == "pom" { // nothing to do if vendor parent project
+	switch packaging {
+	case "pom", "java-source", "javadoc":
+		// nothing to do
 		return false, nil
+	default:
 	}
 	var path = strings.TrimSuffix(reqPath, ".pom") + "." + packaging
 	var groupID, artifactID, version = proj.GroupID, proj.ArtifactID, proj.Version
@@ -227,17 +234,13 @@ func (m *mavenIngress) ValidateBillOfMaterials(ctx context.Context) error {
 		return errors.New("cannot find downstream headers")
 	}
 
-	var input = map[string]interface{}{
-		"eventType": "package_pull",
-		"checksum":  m.packageDescriptor.GetChecksum(),
+	var input = &EvaluateInput{
+		EventType: "package_pull",
+		Checksum:  m.packageDescriptor.getChecksum(),
+		ExtraArgs: m.evaluatorExtraArgs,
 	}
 	if len(m.packageSBOM) != 0 {
-		input["sbom"] = m.packageSBOM
-	}
-	for k, v := range m.evaluatorExtraArgs {
-		if _, exist := input[k]; !exist {
-			input[k] = v
-		}
+		input.SBOM = m.packageSBOM
 	}
 	return m.evaluator.Evaluate(ctx, headers, input)
 }

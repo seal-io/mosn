@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -102,9 +103,38 @@ func (x *Config) Encapsulate() map[string]interface{} {
 
 var evaluateIncompleteError = errors.New("incomplete evaluation")
 
-func (x *Evaluator) Evaluate(ctx context.Context, headers api.HeaderMap, input map[string]interface{}) error {
+type EvaluateInput struct {
+	EventType string             `json:"eventType"`
+	Checksum  string             `json:"checksum,omitempty"`
+	SBOM      stdjson.RawMessage `json:"sbom,omitempty"`
+	ExtraArgs map[string]string  `json:"-"`
+}
+
+func (in EvaluateInput) MarshalJSON() ([]byte, error) {
+	type evaluateInput EvaluateInput
+	var bs, err = json.Marshal(evaluateInput(in))
+	if err != nil {
+		return nil, err
+	}
+
+	var m map[string]stdjson.RawMessage
+	err = json.Unmarshal(bs, &m)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling to map: %w", err)
+	}
+	for k, v := range in.ExtraArgs {
+		m[k] = stdjson.RawMessage(`"` + v + `"`)
+	}
+
+	return json.Marshal(m)
+}
+
+func (x *Evaluator) Evaluate(ctx context.Context, headers api.HeaderMap, input *EvaluateInput) error {
 	if x.GetServer() == "" || input == nil {
 		return nil
+	}
+	if input.Checksum == "" && len(input.SBOM) == 0 {
+		return evaluateIncompleteError
 	}
 
 	var reqBody, err = json.Marshal(input)
