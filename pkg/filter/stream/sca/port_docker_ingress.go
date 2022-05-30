@@ -6,6 +6,7 @@ import (
 	stdjson "encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	stdhttp "net/http"
 	"os"
 	"strings"
@@ -138,12 +139,13 @@ func (m *dockerIngress) doGetBillOfMaterials(ctx context.Context) error {
 	for i := range descriptors {
 		var blobOrder = i
 		var blobURL = strings.Join([]string{"/v2", m.packageDescriptor.Namespace, m.packageDescriptor.Name, "blobs", descriptors[blobOrder].Digest.String()}, "/")
+		log.Proxy.Debugf(ctx, "fetching blob from %s", blobURL)
 		var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
 		var err = variable.SetString(blobCtx, types.VarPath, blobURL)
 		if err != nil {
 			return fmt.Errorf("error setting blob forward path: %w", err)
 		}
-		var blobContent []byte
+		var blobContent bytes.Buffer
 		var blobFetchingReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
 			if respCode != stdhttp.StatusOK {
 				return fmt.Errorf("unexpected response status: %d", respCode)
@@ -157,16 +159,17 @@ func (m *dockerIngress) doGetBillOfMaterials(ctx context.Context) error {
 			if respData == nil || respData.Len() == 0 {
 				return errors.New("empty response body")
 			}
-			blobContent = respData.Bytes()
-			return nil
+			var _, err = io.Copy(&blobContent, respData)
+			return err
 		}
 		var blobFetchingErr = m.Forward(blobCtx, m.route.RouteRule().ClusterName(ctx), blobFetchingReceiver)
 		if blobFetchingErr != nil {
 			return blobFetchingErr
 		}
+		log.Proxy.Infof(ctx, "fetched %d blob from %s", blobContent.Len(), blobURL)
 		blobFetchedResults = append(blobFetchedResults, blobFetchedResponse{
 			order:     blobOrder,
-			content:   blobContent,
+			content:   blobContent.Bytes(),
 			mediaType: descriptors[blobOrder].MediaType,
 		})
 	}
