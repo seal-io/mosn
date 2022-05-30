@@ -52,7 +52,7 @@ func (x *bridge) SendHijackReplyError(err error) {
 func (x *bridge) SendHijackReplyWithBody(statusCode int, statusMessage string, contentType, content string) {
 	var headers = http.ResponseHeader{ResponseHeader: &fasthttp.ResponseHeader{}}
 	if statusCode == 0 {
-		statusCode = stdhttp.StatusUnprocessableEntity
+		statusCode = stdhttp.StatusInternalServerError
 	}
 	if statusMessage != "" {
 		// NB(thxCode): immediate net proxies might be able to clean this irregular message.
