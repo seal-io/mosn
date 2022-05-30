@@ -53,10 +53,15 @@ type dockerIngress struct {
 }
 
 func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
+	var found, err = m.doGetDescriptor(ctx, respHeaders, respBuf, respTrailers)
+	return found, dockerResponseErrorWrap(err)
+}
+
+func (m *dockerIngress) doGetDescriptor(ctx context.Context, respHeaders api.HeaderMap, respBuf api.IoBuffer, respTrailers api.HeaderMap) (bool, error) {
 	// intercept method
 	reqMethod, err := variable.GetString(ctx, types.VarMethod)
 	if err != nil {
-		return false, dockerResponseErrorWrap(fmt.Errorf("error getting %s variable: %w", types.VarMethod, err))
+		return false, fmt.Errorf("error getting %s variable: %w", types.VarMethod, err)
 	}
 	if reqMethod != stdhttp.MethodGet {
 		return false, nil
@@ -64,7 +69,7 @@ func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.Heade
 	// intercept path
 	reqPath, err := variable.GetString(ctx, types.VarPath)
 	if err != nil {
-		return false, dockerResponseErrorWrap(fmt.Errorf("error getting %s variable: %w", types.VarPath, err))
+		return false, fmt.Errorf("error getting %s variable: %w", types.VarPath, err)
 	}
 	var reqPaths = strings.Split(reqPath, "/")
 	for i := 0; i < len(reqPaths); i++ {
@@ -91,7 +96,7 @@ func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.Heade
 	// get metadata
 	repository, err := variable.GetString(ctx, types.VarIstioHeaderHost)
 	if err != nil {
-		return false, dockerResponseErrorWrap(fmt.Errorf("error getting repository: %w", err))
+		return false, fmt.Errorf("error getting repository: %w", err)
 	}
 	var namespace, name, tag = reqPaths[1], reqPaths[2], reqPaths[4]
 
@@ -112,6 +117,10 @@ func (m *dockerIngress) GetDescriptor(ctx context.Context, respHeaders api.Heade
 }
 
 func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
+	return dockerResponseErrorWrap(m.doGetBillOfMaterials(ctx))
+}
+
+func (m *dockerIngress) doGetBillOfMaterials(ctx context.Context) error {
 	var sbomBytes []byte
 
 	// generate from the downloaded blobs.
@@ -122,7 +131,7 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 	}
 	manifest, err := conreg.ParseManifest(bytes.NewBuffer(m.packageDescriptor.RawManifest))
 	if err != nil {
-		return dockerResponseErrorWrap(fmt.Errorf("error parsing manifest format: %w", err))
+		return fmt.Errorf("error parsing manifest format: %w", err)
 	}
 	var blobFetchedResults = make([]blobFetchedResponse, 0, len(manifest.Layers)+1)
 	var descriptors = append(append(make([]conreg.Descriptor, 0, cap(blobFetchedResults)), manifest.Layers...), manifest.Config)
@@ -132,7 +141,7 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 		var blobCtx = mosnctx.WithValue(mosnctx.Clone(ctx), types.ContextKeyBufferPoolCtx, nil)
 		var err = variable.SetString(blobCtx, types.VarPath, blobURL)
 		if err != nil {
-			return dockerResponseErrorWrap(fmt.Errorf("error setting blob forward path: %w", err))
+			return fmt.Errorf("error setting blob forward path: %w", err)
 		}
 		var blobContent []byte
 		var blobFetchingReceiver = func(ctx context.Context, respCode int, respHeaders api.HeaderMap, respData buffer.IoBuffer, respTrailers api.HeaderMap) error {
@@ -153,7 +162,7 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 		}
 		var blobFetchingErr = m.Forward(blobCtx, m.route.RouteRule().ClusterName(ctx), blobFetchingReceiver)
 		if blobFetchingErr != nil {
-			return dockerResponseErrorWrap(blobFetchingErr)
+			return blobFetchingErr
 		}
 		blobFetchedResults = append(blobFetchedResults, blobFetchedResponse{
 			order:     blobOrder,
@@ -206,9 +215,19 @@ func (m *dockerIngress) GetBillOfMaterials(ctx context.Context) error {
 }
 
 func (m *dockerIngress) ValidateBillOfMaterials(ctx context.Context) error {
+	var err = m.doValidateBillOfMaterials(ctx)
+	if err != nil {
+		if errors.Is(err, evaluateIncompleteError) && len(m.packageSBOM) == 0 {
+			return evaluateIncompleteError
+		}
+	}
+	return dockerResponseErrorWrap(err)
+}
+
+func (m *dockerIngress) doValidateBillOfMaterials(ctx context.Context) error {
 	var headers, ok = mosnctx.Get(ctx, types.ContextKeyDownStreamHeaders).(api.HeaderMap)
 	if !ok {
-		return dockerResponseErrorWrap(errors.New("cannot find downstream headers"))
+		return errors.New("cannot find downstream headers")
 	}
 
 	var input = &EvaluateInput{
@@ -220,14 +239,7 @@ func (m *dockerIngress) ValidateBillOfMaterials(ctx context.Context) error {
 		input.SBOM = m.packageSBOM
 	}
 
-	var err = m.evaluator.Evaluate(ctx, headers, input)
-	if err != nil {
-		if errors.Is(err, evaluateIncompleteError) {
-			return err
-		}
-		return dockerResponseErrorWrap(err)
-	}
-	return nil
+	return m.evaluator.Evaluate(ctx, headers, input)
 }
 
 func (m dockerIngress) IngressPort() {}
