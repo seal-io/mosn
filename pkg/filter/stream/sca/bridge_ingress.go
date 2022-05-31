@@ -2,7 +2,6 @@ package sca
 
 import (
 	"context"
-	"errors"
 
 	"mosn.io/api"
 
@@ -55,7 +54,7 @@ func (x *ingressBridge) Append(ctx context.Context, headers api.HeaderMap, buf a
 	// use the found sample to validate some explicit threats.
 	err = ingress.ValidateBillOfMaterials(ctx)
 	if err != nil {
-		if !errors.Is(err, evaluateIncompleteError) {
+		if !IsEvaluateIncompleteError(err) {
 			log.Proxy.Errorf(ctx, "error validating metadata: %v", err)
 			x.SendHijackReplyError(err)
 			return api.StreamFilterStop

@@ -63,23 +63,28 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	if err != nil {
 		return false, fmt.Errorf("error getting %s variable: %w", types.VarPath, err)
 	}
-	switch filepath.Ext(reqPath) {
-	default:
-	case ".jar", ".war", ".ear", ".rar":
-		// protect from disabled re-resolve case as much as possible.
-		reqPath = strings.TrimSuffix(reqPath, ".jar") + ".pom"
-		err = cacher.GetObject(reqPath, &m.packageDescriptor)
-		if err != nil {
-			log.Proxy.Warnf(ctx, "error getting package descriptor from cache: %v", err)
+	var reqPackageExtension = filepath.Ext(reqPath)
+	if !mavenExtensionProcessedSet.Has(reqPackageExtension) {
+		switch reqPackageExtension {
+		default:
 			return false, nil
+		case ".pom":
+			// NB(thxCode): optimization, reduce checksum gain request
+			var cerr = cacher.GetObject(reqPath, &m.packageDescriptor)
+			if cerr == nil {
+				return true, nil
+			}
 		}
-		return true, nil
-	case ".pom":
-		err = cacher.GetObject(reqPath, &m.packageDescriptor)
-		if err == nil {
-			// reduce checksum gain request.
-			return true, nil
+	} else {
+		// protect from disabled re-resolve case as much as possible.
+		var re HijackReplyError
+		var pomReqPath = strings.TrimSuffix(reqPath, reqPackageExtension) + ".pom"
+		var cerr = cacher.GetObject("validates:"+pomReqPath, &re)
+		if cerr == nil {
+			// NB(thxCode): return the previous pom validating result.
+			return false, re
 		}
+		return false, nil
 	}
 	// intercept content-type
 	var respContentType, _ = respHeaders.Get("Content-Type")
@@ -104,26 +109,29 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	var proj gopom.Project
 	var dec = xml.NewDecoder(bytes.NewBuffer(respBuf.Bytes()))
 	dec.CharsetReader = charset.NewReaderLabel
+	dec.Strict = false
+	dec.AutoClose = xml.HTMLAutoClose
+	dec.Entity = xml.HTMLEntity
 	if err = dec.Decode(&proj); err != nil {
-		return false, fmt.Errorf("error decoding project pom: %w", err)
-	}
-	var packaging = func() string {
-		// NB(thxCode): packaging reference, https://maven.apache.org/ref/3.8.5/maven-core/artifact-handlers.html.
-		var rawPackaging = strings.ToLower(proj.Packaging)
-		switch rawPackaging {
-		case "maven-plugin", "test-jar", "ejb", "ejb-client", "":
-			return "jar"
-		default:
-			return rawPackaging
-		}
-	}()
-	switch packaging {
-	case "pom", "java-source", "javadoc":
-		// nothing to do
+		log.Proxy.Warnf(ctx, "error decoding project pom: %v", err)
+		// NB(thxCode): ignore error if failed decoding.
 		return false, nil
-	default:
 	}
-	var path = strings.TrimSuffix(reqPath, ".pom") + "." + packaging
+	if proj.GroupID == "" {
+		proj.GroupID = proj.Parent.GroupID
+	}
+	if proj.Version == "" {
+		proj.Version = proj.Parent.Version
+	}
+	var packaging = strings.ToLower(proj.Packaging)
+	var extension = mavenPackagingExtensionMap[packaging]
+	if extension == "" {
+		// not found extension
+		log.Proxy.Warnf(ctx, "ignored unrecorded extension for package %s/%s:%s(%q)",
+			proj.GroupID, proj.ArtifactID, proj.Version, packaging)
+		return false, nil
+	}
+	var path = strings.TrimSuffix(reqPath, ".pom") + extension
 	var groupID, artifactID, version = proj.GroupID, proj.ArtifactID, proj.Version
 
 	// get checksum
@@ -170,7 +178,7 @@ func (m *mavenIngress) GetDescriptor(ctx context.Context, respHeaders api.Header
 	}
 	err = cacher.SetObject(reqPath, m.packageDescriptor)
 	if err != nil {
-		log.Proxy.Warnf(ctx, "error setting package descriptor into cache: %v", err)
+		log.Proxy.Warnf(ctx, "error caching package descriptor: %v", err)
 	}
 	return true, nil
 }
@@ -242,7 +250,18 @@ func (m *mavenIngress) ValidateBillOfMaterials(ctx context.Context) error {
 	if len(m.packageSBOM) != 0 {
 		input.SBOM = m.packageSBOM
 	}
-	return m.evaluator.Evaluate(ctx, headers, input)
+	var err = m.evaluator.Evaluate(ctx, headers, input)
+	if err != nil {
+		var re HijackReplyError
+		if errors.As(err, &re) {
+			var pomReqPath = m.packageDescriptor.Path
+			var cerr = cacher.SetObject("validates:"+pomReqPath, re)
+			if cerr != nil {
+				log.Proxy.Warnf(ctx, "error caching package validation: %v", err)
+			}
+		}
+	}
+	return err
 }
 
 func (m mavenIngress) IngressPort() {}

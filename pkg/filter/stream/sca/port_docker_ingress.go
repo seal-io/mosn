@@ -220,8 +220,8 @@ func (m *dockerIngress) doGetBillOfMaterials(ctx context.Context) error {
 func (m *dockerIngress) ValidateBillOfMaterials(ctx context.Context) error {
 	var err = m.doValidateBillOfMaterials(ctx)
 	if err != nil {
-		if errors.Is(err, evaluateIncompleteError) && len(m.packageSBOM) == 0 {
-			return evaluateIncompleteError
+		if IsEvaluateIncompleteError(err) {
+			return err
 		}
 	}
 	return dockerResponseErrorWrap(err)

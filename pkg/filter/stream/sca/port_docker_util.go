@@ -70,11 +70,13 @@ func dockerResponseErrorWrap(causeErr error) error {
 			message = re.CauseContent
 		}
 	}
-	return HijackReplyError{
-		StatusCode:    statusCode,
-		StatusMessage: stdhttp.StatusText(statusCode),
-		ContentType:   "application/json",
-		CauseError:    causeErr,
-		CauseContent:  fmt.Sprintf(`{"errors":[{"code":"%s","message":"%v"}]}`, code, message),
+	return CausedHijackReplyError{
+		HijackReplyError: HijackReplyError{
+			StatusCode:    statusCode,
+			StatusMessage: stdhttp.StatusText(statusCode),
+			ContentType:   "application/json",
+			CauseContent:  fmt.Sprintf(`{"errors":[{"code":"%s","message":"%v"}]}`, code, message),
+		},
+		CauseError: causeErr,
 	}
 }

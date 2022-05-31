@@ -41,9 +41,14 @@ func (x *bridge) SetReceiveFilterHandler(handler api.StreamReceiverFilterHandler
 }
 
 func (x *bridge) SendHijackReplyError(err error) {
+	var cre CausedHijackReplyError
+	if errors.As(err, &cre) {
+		x.SendHijackReplyWithBody(cre.StatusCode, cre.StatusMessage, cre.ContentType, cre.Content())
+		return
+	}
 	var re HijackReplyError
 	if errors.As(err, &re) {
-		x.SendHijackReplyWithBody(re.StatusCode, re.StatusMessage, re.ContentType, re.Content())
+		x.SendHijackReplyWithBody(re.StatusCode, re.StatusMessage, re.ContentType, re.Error())
 		return
 	}
 	x.SendHijackReplyWithBody(0, "", "", "")
@@ -77,18 +82,27 @@ type HijackReplyError struct {
 	StatusCode    int
 	StatusMessage string
 	ContentType   string
-	CauseError    error
 	CauseContent  string
 }
 
 func (x HijackReplyError) Error() string {
+	return x.CauseContent
+}
+
+type CausedHijackReplyError struct {
+	HijackReplyError
+
+	CauseError error
+}
+
+func (x CausedHijackReplyError) Error() string {
 	if x.CauseError != nil { // show cause error at first
 		return x.CauseError.Error()
 	}
 	return x.CauseContent
 }
 
-func (x HijackReplyError) Content() string {
+func (x CausedHijackReplyError) Content() string {
 	if x.CauseContent != "" { // show cause content at first
 		return x.CauseContent
 	}

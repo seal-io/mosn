@@ -103,6 +103,10 @@ func (x *Config) Encapsulate() map[string]interface{} {
 
 var evaluateIncompleteError = errors.New("incomplete evaluation")
 
+func IsEvaluateIncompleteError(in error) bool {
+	return errors.Is(in, evaluateIncompleteError)
+}
+
 type EvaluateInput struct {
 	EventType string             `json:"eventType"`
 	Checksum  string             `json:"checksum,omitempty"`

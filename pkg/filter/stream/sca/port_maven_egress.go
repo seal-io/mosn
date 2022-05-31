@@ -57,10 +57,9 @@ func (m *mavenEgress) GetDescriptor(ctx context.Context, reqHeaders api.HeaderMa
 	if err != nil {
 		return false, fmt.Errorf("error getting %s variable: %w", types.VarPath, err)
 	}
-	switch filepath.Ext(reqPath) {
-	default:
+	var reqPackageExtension = filepath.Ext(reqPath)
+	if !mavenExtensionProcessedSet.Has(reqPackageExtension) {
 		return false, nil
-	case ".jar", ".war", ".ear", ".par", ".sar", ".jpi", ".hpi", ".lpkg":
 	}
 
 	m.packageDescriptor = mavenPackageDescriptor{
